@@ -1,8 +1,38 @@
 <!doctype html>
 <html lang="ko">
-<head><meta charset="utf-8"><title>Youtubook 결과</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>Youtubook — 장면 선택</title>
+  <link rel="stylesheet" href="./results.css">
+</head>
 <body>
-  <div id="app"></div>
+  <header>
+    <div class="title-row">
+      <h1 id="video-title">불러오는 중…</h1>
+      <span id="scene-count"></span>
+    </div>
+    <div id="banners"></div>
+    <div class="controls">
+      <label>민감도 <input type="range" id="sensitivity" min="1" max="10" step="1">
+        <span id="sensitivity-value"></span></label>
+      <button id="redetect">재검출</button>
+      <span class="spacer"></span>
+      <button id="select-all">전체 선택</button>
+      <button id="select-none">전체 해제</button>
+      <span id="selected-count">0개 선택</span>
+      <button id="next" class="primary" disabled>다음</button>
+    </div>
+  </header>
+  <main id="grid"></main>
+  <section id="export-panel" hidden>
+    <h2>파일 다운로드</h2>
+    <p id="export-status"></p>
+    <div class="export-buttons">
+      <button id="dl-pdf" class="primary">장면 모음 PDF</button>
+      <button id="dl-pptx" class="primary">장면 모음 PPTX (대본 노트 포함)</button>
+      <button id="dl-txt" class="primary">대본 TXT</button>
+    </div>
+  </section>
   <script type="module" src="./results.ts"></script>
 </body>
 </html>

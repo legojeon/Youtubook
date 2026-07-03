@@ -1,0 +1,23 @@
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #f4f4f4; color: #222; }
+header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #ddd; padding: 12px 20px; z-index: 10; }
+.title-row { display: flex; align-items: baseline; gap: 12px; }
+h1 { font-size: 18px; margin: 0; }
+#scene-count { color: #777; }
+.controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.spacer { flex: 1; }
+button { padding: 6px 14px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; font-size: 13px; }
+button:hover { background: #f0f0f0; }
+button.primary { background: #c00; border-color: #c00; color: #fff; font-weight: 600; }
+button.primary:disabled { background: #999; border-color: #999; cursor: default; }
+.banner { background: #fff3cd; border: 1px solid #ffe08a; border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
+.banner.error { background: #fdd; border-color: #f99; }
+#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 20px; }
+.card { background: #fff; border: 2px solid transparent; border-radius: 10px; overflow: hidden; cursor: pointer; }
+.card.selected { border-color: #c00; }
+.card img { width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #000; display: block; }
+.card .meta { display: flex; align-items: center; gap: 8px; padding: 8px 10px 0; color: #555; font-size: 12px; }
+.card .script { padding: 4px 10px 10px; font-size: 13px; max-height: 4.5em; overflow-y: auto; }
+.card .script:empty::before { content: '(이 구간 대본 없음)'; color: #aaa; }
+#export-panel { padding: 20px; }
+.export-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
