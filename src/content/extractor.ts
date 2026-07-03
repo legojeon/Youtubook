@@ -60,6 +60,9 @@ export async function scanVideo(
   onProgress: (done: number, total: number) => void,
   signal: AbortSignal,
 ): Promise<ScanResult> {
+  if (!video.videoWidth || !video.videoHeight) {
+    throw new Error('영상 크기를 확인할 수 없습니다 — 영상이 로드된 후 다시 시도해주세요.');
+  }
   const times = buildSampleTimes(video.duration, intervalSec);
   const aspect = video.videoHeight / video.videoWidth || 9 / 16;
   const thumbW = 160;
@@ -93,6 +96,9 @@ export async function captureFrames(
   onFrame: (key: string, dataUrl: string) => Promise<void>,
   signal: AbortSignal,
 ): Promise<void> {
+  if (!video.videoWidth || !video.videoHeight) {
+    throw new Error('영상 크기를 확인할 수 없습니다 — 영상이 로드된 후 다시 시도해주세요.');
+  }
   const [, ctx] = makeCanvas(video.videoWidth, video.videoHeight);
   for (let i = 0; i < reps.length; i++) {
     if (signal.aborted) throw aborted();
