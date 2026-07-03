@@ -1,9 +1,10 @@
 import { DEFAULT_DETECT, detectScenes } from '../core/detect';
-import { formatTimestamp } from '../core/format';
+import { formatTimestamp, sanitizeFilename } from '../core/format';
 import { scriptForRange } from '../core/mapping';
 import { repKey, type SceneRange, type SessionData } from '../core/types';
 import type { Msg, MsgResponse, RepRef } from '../messages';
 import { getSession, updateSession } from '../storage/db';
+import { buildPdf, buildPptx, buildTxt, downloadBlob } from './exporters';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const grid = $('#grid');
@@ -142,9 +143,6 @@ function getSelectedScenes(): SelectedScene[] {
       script: scriptForRange(session.cues, range.startSec, range.endSec),
     }));
 }
-// Task 14에서 사용
-void getSelectedScenes;
-
 void (async () => {
   const id = new URLSearchParams(location.search).get('session');
   const loaded = id ? await getSession(id) : null;
@@ -172,6 +170,44 @@ void (async () => {
     $('#export-panel').hidden = false;
     $('#export-panel').scrollIntoView({ behavior: 'smooth' });
   });
+
+  const busy = async (btn: HTMLButtonElement, fn: () => Promise<void>) => {
+    btn.disabled = true;
+    $('#export-status').textContent = '생성 중…';
+    try {
+      await fn();
+      $('#export-status').textContent = '완료! 다운로드 폴더를 확인하세요.';
+    } catch (err) {
+      $('#export-status').textContent = `생성 실패: ${err instanceof Error ? err.message : err}`;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  const base = () => sanitizeFilename(session.meta.title);
+  const { videoWidth: vw, videoHeight: vh } = session.meta;
+
+  $('#dl-pdf').addEventListener('click', e =>
+    void busy(e.currentTarget as HTMLButtonElement, async () => {
+      const scenes = getSelectedScenes();
+      downloadBlob(buildPdf(scenes.map(s => s.image), vw, vh), `${base()}_scenes.pdf`);
+    }));
+  $('#dl-pptx').addEventListener('click', e =>
+    void busy(e.currentTarget as HTMLButtonElement, async () => {
+      const scenes = getSelectedScenes();
+      downloadBlob(
+        await buildPptx(scenes.map(s => ({ image: s.image, notes: s.script })), vw, vh),
+        `${base()}_scenes.pptx`,
+      );
+    }));
+  const txtBtn = $('#dl-txt') as HTMLButtonElement;
+  txtBtn.disabled = !session.meta.captionsAvailable;
+  txtBtn.addEventListener('click', e =>
+    void busy(e.currentTarget as HTMLButtonElement, async () => {
+      const entries = getSelectedScenes().map(s => ({
+        startSec: s.range.startSec, endSec: s.range.endSec, text: s.script,
+      }));
+      downloadBlob(buildTxt(entries), `${base()}_script.txt`);
+    }));
 
   if (!session.meta.captionsAvailable) {
     banner('이 영상은 자막이 없어 장면만 추출됩니다. 대본 TXT는 제공되지 않습니다.');
