@@ -1,7 +1,21 @@
 <!doctype html>
 <html lang="ko">
-<head><meta charset="utf-8"><title>Youtubook</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>Youtubook</title>
+  <style>
+    body { width: 260px; font: 13px/1.5 system-ui, sans-serif; padding: 12px; margin: 0; }
+    h1 { font-size: 15px; margin: 0 0 8px; }
+    button {
+      width: 100%; padding: 8px; font-size: 14px; font-weight: 600;
+      border: none; border-radius: 8px; background: #c00; color: #fff; cursor: pointer;
+    }
+    button:disabled { background: #999; cursor: default; }
+    #status { color: #555; min-height: 1.5em; margin: 8px 0 0; }
+  </style>
+</head>
 <body>
+  <h1>Youtubook</h1>
   <button id="go">그림책 생성</button>
   <p id="status"></p>
   <script type="module" src="./popup.ts"></script>
