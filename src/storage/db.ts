@@ -22,6 +22,8 @@ async function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => ID
   try {
     return await new Promise<T>((resolve, reject) => {
       const t = db.transaction(STORE, mode);
+      t.onabort = () => reject(t.error ?? new DOMException('Transaction aborted', 'AbortError'));
+      t.onerror = () => reject(t.error);
       const req = fn(t.objectStore(STORE));
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
