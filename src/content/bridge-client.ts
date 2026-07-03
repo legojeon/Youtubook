@@ -20,6 +20,10 @@ function bridgeCall<T>(cmd: string, timeoutMs = 2000): Promise<T> {
       const d = ev.data as { source?: string; reqId?: string; payload?: T } | null;
       if (ev.source !== window || !d || d.source !== 'youtubook-bridge' || d.reqId !== reqId) return;
       cleanup();
+      if (d.payload === undefined) {
+        reject(new Error(`bridge empty payload: ${cmd}`));
+        return;
+      }
       resolve(d.payload as T);
     };
     const cleanup = () => {
