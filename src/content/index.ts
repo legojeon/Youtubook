@@ -54,7 +54,6 @@ async function runExtraction(): Promise<void> {
 
     overlay.setStage('광고 확인 중…');
     await waitForNoAd(() => overlay.setStage('광고가 끝나면 시작합니다…'), ac.signal);
-    await setMaxQuality().catch(() => {});
 
     const state = savePlayerState(video);
     video.muted = true;
@@ -90,6 +89,9 @@ async function runExtraction(): Promise<void> {
       await send({ type: 'SESSION_THUMBS', thumbs: scan.thumbs });
 
       overlay.setStage('장면 캡처 중…');
+      // 화질 최대 설정은 캡처 직전에만 — 스캔은 64px 비교라 화질 무관이고,
+      // 스캔 전에 올리면 전체 스캔이 고화질 세그먼트 로딩을 기다리며 seek이 느려진다.
+      await setMaxQuality().catch(() => {});
       await captureFrames(
         video,
         det.ranges.map(r => ({ key: repKey(r.repSec), repSec: r.repSec })),
@@ -133,6 +135,7 @@ async function runRecapture(
   video.pause();
   try {
     await waitForNoAd(() => {}, ac.signal);
+    await setMaxQuality().catch(() => {}); // 재캡처도 고해상도 확보
     await captureFrames(
       video, msg.reps, () => {},
       async (key, dataUrl) => {

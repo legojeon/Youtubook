@@ -21,14 +21,16 @@ function nextFrame(): Promise<void> {
   });
 }
 
-async function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
-  const target = Math.min(Math.max(t, 0), Math.max(0, video.duration - 0.1));
-  if (Math.abs(video.currentTime - target) < 0.01) return;
-  await new Promise<void>((resolve, reject) => {
+// 세그먼트 로딩이 느린 지점(영상 끝부분, 세그먼트 경계)에서 seeked가 수 초 늦게 오는
+// 스파이크가 실측됨(480p·빠른 회선에서도 ~4s) — 여유 있는 타임아웃 + 1회 재시도로 흡수한다.
+const SEEK_TIMEOUT_MS = 15_000;
+
+function seekOnce(video: HTMLVideoElement, target: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
       reject(new Error(`seek 시간 초과 (${target.toFixed(1)}s)`));
-    }, 5000);
+    }, SEEK_TIMEOUT_MS);
     const onSeeked = () => { cleanup(); resolve(); };
     const cleanup = () => {
       clearTimeout(timer);
@@ -37,6 +39,22 @@ async function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
     video.addEventListener('seeked', onSeeked);
     video.currentTime = target;
   });
+}
+
+async function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
+  const target = Math.min(Math.max(t, 0), Math.max(0, video.duration - 0.1));
+  if (Math.abs(video.currentTime - target) < 0.01) return;
+  const started = performance.now();
+  try {
+    await seekOnce(video, target);
+  } catch (err) {
+    console.warn('[youtubook] seek 재시도', target, err);
+    await seekOnce(video, target);
+  }
+  const elapsed = performance.now() - started;
+  if (elapsed > 3000) {
+    console.warn(`[youtubook] 느린 seek: ${target.toFixed(1)}s (${Math.round(elapsed)}ms)`);
+  }
   await nextFrame();
 }
 
