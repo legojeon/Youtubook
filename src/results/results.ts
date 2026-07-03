@@ -1,6 +1,6 @@
 import { DEFAULT_DETECT, detectScenes } from '../core/detect';
 import { formatTimestamp, sanitizeFilename } from '../core/format';
-import { scriptForRange } from '../core/mapping';
+import { scriptForRange, scriptSpans } from '../core/mapping';
 import { repKey, type SceneRange, type SessionData } from '../core/types';
 import type { Msg, MsgResponse, RepRef } from '../messages';
 import { getSession, updateSession } from '../storage/db';
@@ -131,17 +131,24 @@ export interface SelectedScene {
   range: SceneRange;
   image: string;
   script: string;
+  scriptStartSec: number; // 이 장면이 담당하는 대본 구간 (선택 장면 기준 타임라인 분할)
+  scriptEndSec: number;
 }
 
 function getSelectedScenes(): SelectedScene[] {
-  return session.ranges
+  const picked = session.ranges
     .filter(r => selected.has(repKey(r.repSec)))
-    .sort((a, b) => a.startSec - b.startSec)
-    .map(range => ({
-      range,
-      image: imageFor(range),
-      script: scriptForRange(session.cues, range.startSec, range.endSec),
-    }));
+    .sort((a, b) => a.startSec - b.startSec);
+  // 선택 장면들로 전체 타임라인을 분할 — 각 장면이 다음 선택 장면 전까지의
+  // 자막을 모두 가져가 내레이션이 빠지지 않는다 (그림책 읽어주기 용도).
+  const spans = scriptSpans(picked.map(r => r.startSec), session.meta.durationSec);
+  return picked.map((range, i) => ({
+    range,
+    image: imageFor(range),
+    script: scriptForRange(session.cues, spans[i].startSec, spans[i].endSec),
+    scriptStartSec: spans[i].startSec,
+    scriptEndSec: spans[i].endSec,
+  }));
 }
 void (async () => {
   const id = new URLSearchParams(location.search).get('session');
@@ -204,7 +211,7 @@ void (async () => {
   txtBtn.addEventListener('click', e =>
     void busy(e.currentTarget as HTMLButtonElement, async () => {
       const entries = getSelectedScenes().map(s => ({
-        startSec: s.range.startSec, endSec: s.range.endSec, text: s.script,
+        startSec: s.scriptStartSec, endSec: s.scriptEndSec, text: s.script,
       }));
       downloadBlob(buildTxt(entries), `${base()}_script.txt`);
     }));
