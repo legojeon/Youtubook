@@ -36,13 +36,18 @@ const send = (m: Msg) => chrome.runtime.sendMessage<Msg, MsgResponse>(m);
 async function runExtraction(): Promise<void> {
   running = true;
   const ac = new AbortController();
+  const onNavigate = () => ac.abort();
+  document.addEventListener('yt-navigate-start', onNavigate);
   const overlay = createOverlay(() => ac.abort());
   const video = findVideo();
   try {
     if (!location.pathname.startsWith('/watch') || !video) {
       throw new Error('유튜브 영상 페이지에서 실행해주세요.');
     }
-    const info = await getPlayerInfo().catch(() => null); // 브리지 실패 → 자막 없이 진행 (폴백)
+    const info = await getPlayerInfo().catch((err: unknown) => {
+      console.warn('[youtubook] 브리지 호출 실패 — 자막 없이 진행합니다', err);
+      return null;
+    }); // 브리지 실패 → 자막 없이 진행 (폴백)
     if (info?.isLive || !isFinite(video.duration) || video.duration <= 0) {
       throw new Error('라이브/프리미어 영상은 지원하지 않습니다.');
     }
@@ -107,6 +112,7 @@ async function runExtraction(): Promise<void> {
       overlay.showError(err instanceof Error ? err.message : '추출에 실패했습니다.');
     }
   } finally {
+    document.removeEventListener('yt-navigate-start', onNavigate);
     running = false;
   }
 }
@@ -120,6 +126,8 @@ async function runRecapture(
   if (running) return { ok: false, reason: '추출이 진행 중입니다.' };
   running = true;
   const ac = new AbortController();
+  const onNavigate = () => ac.abort();
+  document.addEventListener('yt-navigate-start', onNavigate);
   const state = savePlayerState(video);
   video.muted = true;
   video.pause();
@@ -128,6 +136,9 @@ async function runRecapture(
     await captureFrames(
       video, msg.reps, () => {},
       async (key, dataUrl) => {
+        if (new URLSearchParams(location.search).get('v') !== msg.videoId) {
+          throw new DOMException('영상이 변경되었습니다', 'AbortError');
+        }
         await send({ type: 'FRAME_READY', sessionId: msg.sessionId, key, dataUrl });
       },
       ac.signal,
@@ -136,6 +147,7 @@ async function runRecapture(
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : '재캡처 실패' };
   } finally {
+    document.removeEventListener('yt-navigate-start', onNavigate);
     await restorePlayerState(video, state);
     running = false;
   }
