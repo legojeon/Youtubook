@@ -75,36 +75,46 @@ function render(): void {
 }
 
 async function redetect(): Promise<void> {
-  const sensitivity = Number(($('#sensitivity') as HTMLInputElement).value);
-  const det = detectScenes(session.scores, {
-    ...DEFAULT_DETECT,
-    sensitivity,
-    sampleIntervalSec: session.meta.sampleIntervalSec,
-    durationSec: session.meta.durationSec,
-  });
-  const updated = await updateSession(session.meta.id, s => ({
-    ...s,
-    ranges: det.ranges,
-    meta: { ...s.meta, sensitivity, truncated: det.truncated },
-  }));
-  if (updated) session = { ...updated, images: { ...session.images, ...updated.images } };
-  render();
+  const btn = $('#redetect') as HTMLButtonElement;
+  btn.disabled = true;
+  try {
+    const sensitivity = Number(($('#sensitivity') as HTMLInputElement).value);
+    const det = detectScenes(session.scores, {
+      ...DEFAULT_DETECT,
+      sensitivity,
+      sampleIntervalSec: session.meta.sampleIntervalSec,
+      durationSec: session.meta.durationSec,
+    });
+    const updated = await updateSession(session.meta.id, s => ({
+      ...s,
+      ranges: det.ranges,
+      meta: { ...s.meta, sensitivity, truncated: det.truncated },
+    }));
+    if (!updated) {
+      banner('세션 저장에 실패했습니다. 페이지를 새로고침해주세요.', 'error');
+      return;
+    }
+    session = { ...updated, images: { ...session.images, ...updated.images } };
+    render();
 
-  const missing: RepRef[] = session.ranges
-    .filter(r => !session.images[repKey(r.repSec)])
-    .map(r => ({ key: repKey(r.repSec), repSec: r.repSec }));
-  if (!missing.length) return;
+    const missing: RepRef[] = session.ranges
+      .filter(r => !session.images[repKey(r.repSec)])
+      .map(r => ({ key: repKey(r.repSec), repSec: r.repSec }));
+    if (!missing.length) return;
 
-  const res = await chrome.runtime.sendMessage<Msg, MsgResponse>({
-    type: 'REQUEST_CAPTURES', sessionId: session.meta.id, reps: missing,
-  });
-  if (!res.ok) {
-    banner(
-      res.reason === 'tab-closed' || res.reason === 'wrong-video'
-        ? '고해상도 캡처를 하려면 원본 유튜브 영상 탭을 열어둔 상태여야 합니다. 지금은 미리보기 화질로 표시됩니다.'
-        : `재캡처 실패: ${res.reason ?? '알 수 없는 오류'}`,
-      'error',
-    );
+    const res = await chrome.runtime.sendMessage<Msg, MsgResponse>({
+      type: 'REQUEST_CAPTURES', sessionId: session.meta.id, reps: missing,
+    });
+    if (!res.ok) {
+      banner(
+        res.reason === 'tab-closed' || res.reason === 'wrong-video'
+          ? '고해상도 캡처를 하려면 원본 유튜브 영상 탭을 열어둔 상태여야 합니다. 지금은 미리보기 화질로 표시됩니다.'
+          : `재캡처 실패: ${res.reason ?? '알 수 없는 오류'}`,
+        'error',
+      );
+    }
+  } finally {
+    btn.disabled = false;
   }
 }
 
