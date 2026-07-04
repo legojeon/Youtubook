@@ -76,8 +76,8 @@ export class TimedtextUrlCache {
   find(query: TimedtextQuery): ObservedTimedtextUrl | null {
     const afterStartTime = query.afterStartTime ?? -1;
     const score = (entry: ObservedTimedtextUrl) =>
-      Number(query.languageCode !== undefined && entry.languageCode === query.languageCode) * 2 +
-      Number(query.kind !== undefined && entry.kind === query.kind);
+      Number((entry.languageCode ?? '') === (query.languageCode ?? '')) * 2 +
+      Number((entry.kind ?? '') === (query.kind ?? ''));
 
     return this.entries
       .filter(entry => entry.videoId === query.videoId && entry.startTime > afterStartTime)

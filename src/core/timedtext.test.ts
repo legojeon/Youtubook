@@ -27,6 +27,22 @@ describe('TimedtextUrlCache', () => {
     expect(match?.kind).toBe('asr');
   });
 
+  it('prefers a no-kind entry when the query kind is omitted', () => {
+    const cache = new TimedtextUrlCache(8);
+    cache.add(url('v1', 'en'), 1);
+    cache.add(url('v1', 'en', 'asr'), 2);
+
+    expect(cache.find({ videoId: 'v1', languageCode: 'en' })?.kind).toBeUndefined();
+  });
+
+  it('prefers a no-language entry when the query language is omitted', () => {
+    const cache = new TimedtextUrlCache(8);
+    cache.add('https://www.youtube.com/api/timedtext?v=v1&pot=manual', 1);
+    cache.add(url('v1', 'en', '', 'translated'), 2);
+
+    expect(cache.find({ videoId: 'v1' })?.languageCode).toBeUndefined();
+  });
+
   it('refreshes duplicate observation time without growing the cache', () => {
     const cache = new TimedtextUrlCache(8);
     const same = url('v1', 'en', 'asr');
