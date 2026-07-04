@@ -1,6 +1,5 @@
 import type { Cue } from './types';
-
-export const MAX_CAPTION_EVENTS = 100_000;
+import { MAX_CAPTION_EVENTS } from './limits';
 
 export type CaptionStatus = 'available' | 'absent' | 'fetch-failed';
 

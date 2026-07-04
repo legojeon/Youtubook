@@ -119,20 +119,17 @@ export async function fetchCaptions(
     languageCode: track.languageCode,
     kind: track.kind,
   };
-  let prior: ObservedTimedtextUrl | null;
+  let prior: ObservedTimedtextUrl | null = null;
   try {
     prior = await deps.getObserved(query);
   } catch {
-    return failed('no-observed-url');
+    // A failed cache lookup does not prevent the player from producing a fresh URL.
   }
+  const cutoff = prior?.startTime ?? performance.now();
   if (prior) {
     const priorResult = await fetchObservedJson3(prior, videoId, deps);
     if (priorResult.status === 'available') return priorResult;
-    if (
-      priorResult.status === 'invalid-url' ||
-      priorResult.status === 'too-many-events' ||
-      priorResult.status === 'parse-error'
-    ) {
+    if (priorResult.status === 'too-many-events') {
       return observedFetchResult(priorResult);
     }
   }
@@ -143,7 +140,6 @@ export async function fetchCaptions(
   }
 
   const wasOn = button.getAttribute('aria-pressed') === 'true';
-  const cutoff = performance.now();
   try {
     if (wasOn) {
       button.click();

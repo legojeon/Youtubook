@@ -85,7 +85,6 @@ async function runExtraction(): Promise<void> {
         sampleIntervalSec: DEFAULT_DETECT.sampleIntervalSec,
         sensitivity: DEFAULT_DETECT.sensitivity,
         captionsAvailable: captions.status === 'available',
-        captionStatus: captions.status,
         truncated: det.truncated,
         createdAt: Date.now(),
       };

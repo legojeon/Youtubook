@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CaptionTrackInfo } from '../core/captions';
+import { MAX_CAPTION_EVENTS } from '../core/limits';
 import type { ObservedTimedtextUrl } from '../core/timedtext';
 import { fetchCaptions, type CaptionFetchDeps } from './captions-fetch';
 
@@ -13,13 +14,16 @@ const json3 = JSON.stringify({
   events: [{ tStartMs: 1000, dDurationMs: 2000, segs: [{ utf8: 'hello' }] }],
 });
 
-const observed = (url = 'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=proof'):
+const observed = (
+  url = 'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=proof',
+  startTime = 10,
+):
 ObservedTimedtextUrl => ({
   url,
   videoId: 'video-1',
   languageCode: 'en',
   kind: 'asr',
-  startTime: 10,
+  startTime,
 });
 
 interface ButtonHarness {
@@ -115,10 +119,14 @@ describe('fetchCaptions', () => {
       requestText,
       getObserved: vi.fn(async () => observed(
         'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=expired',
+        4_242,
       )),
-      waitObserved: vi.fn(async () => observed(
-        'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=fresh',
-      )),
+      waitObserved: vi.fn(async query => {
+        expect(query.afterStartTime).toBe(4_242);
+        return observed(
+          'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=fresh',
+        );
+      }),
       getSubtitleButton: () => harness.button,
     }));
 
@@ -210,15 +218,22 @@ describe('fetchCaptions', () => {
     expect(harness.isOn()).toBe(false);
   });
 
-  it('turns bridge rejections into fetch-failed results', async () => {
-    await expect(fetchCaptions([track], 'video-1', deps({
+  it('continues to a fresh player URL when the prior bridge lookup rejects', async () => {
+    const harness = buttonHarness(false);
+    const result = await fetchCaptions([track], 'video-1', deps({
       getObserved: vi.fn(async () => { throw new Error('bridge rejected'); }),
-    }))).resolves.toEqual({
-      status: 'fetch-failed',
-      reason: 'no-observed-url',
-      cues: [],
-    });
+      getSubtitleButton: () => harness.button,
+      waitObserved: vi.fn(async () => observed()),
+      requestText: vi.fn(async (url: string) => (
+        url.includes('pot=proof') ? { ok: true, text: json3 } : { ok: true, text: '' }
+      )),
+    }));
 
+    expect(result.status).toBe('available');
+    expect(harness.clicks).toEqual([true, false]);
+  });
+
+  it('turns a fresh bridge wait rejection into a fetch-failed result', async () => {
     const harness = buttonHarness(false);
     await expect(fetchCaptions([track], 'video-1', deps({
       getSubtitleButton: () => harness.button,
@@ -231,18 +246,82 @@ describe('fetchCaptions', () => {
     expect(harness.isOn()).toBe(false);
   });
 
-  it('rejects an invalid observed URL explicitly', async () => {
-    await expect(fetchCaptions([track], 'video-1', deps({
+  it('continues to a fresh player URL after an invalid prior observed URL', async () => {
+    const harness = buttonHarness(false);
+    const result = await fetchCaptions([track], 'video-1', deps({
       getObserved: vi.fn(async () => observed('https://evil.example/api/timedtext?v=video-1&pot=proof')),
+      getSubtitleButton: () => harness.button,
+      waitObserved: vi.fn(async () => observed()),
+      requestText: vi.fn(async (url: string) => (
+        url.includes('pot=proof') ? { ok: true, text: json3 } : { ok: true, text: '' }
+      )),
+    }));
+
+    expect(result.status).toBe('available');
+    expect(harness.clicks).toEqual([true, false]);
+  });
+
+  it('continues to a fresh player URL after a prior observed parse error', async () => {
+    const harness = buttonHarness(false);
+    const result = await fetchCaptions([track], 'video-1', deps({
+      getObserved: vi.fn(async () => observed(
+        'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=malformed',
+      )),
+      getSubtitleButton: () => harness.button,
+      waitObserved: vi.fn(async () => observed()),
+      requestText: vi.fn(async (url: string) => {
+        if (url.includes('pot=proof')) return { ok: true, text: json3 };
+        if (url.includes('pot=malformed')) return { ok: true, text: '{' };
+        return { ok: true, text: '' };
+      }),
+    }));
+
+    expect(result.status).toBe('available');
+    expect(harness.clicks).toEqual([true, false]);
+  });
+
+  it('reports an invalid fresh observed URL explicitly', async () => {
+    const harness = buttonHarness(false);
+
+    await expect(fetchCaptions([track], 'video-1', deps({
+      getSubtitleButton: () => harness.button,
+      waitObserved: vi.fn(async () => observed(
+        'https://evil.example/api/timedtext?v=video-1&pot=proof',
+      )),
     }))).resolves.toEqual({
       status: 'fetch-failed',
       reason: 'invalid-url',
       cues: [],
     });
+    expect(harness.clicks).toEqual([true, false]);
+  });
+
+  it('treats too many events from a prior observed URL as terminal', async () => {
+    const harness = buttonHarness(false);
+    const oversized = JSON.stringify({
+      events: Array.from({ length: MAX_CAPTION_EVENTS + 1 }, () => null),
+    });
+
+    await expect(fetchCaptions([track], 'video-1', deps({
+      getObserved: vi.fn(async () => observed()),
+      getSubtitleButton: () => harness.button,
+      requestText: vi.fn(async (url: string) => (
+        url.includes('pot=proof')
+          ? { ok: true, text: oversized }
+          : { ok: true, text: '' }
+      )),
+    }))).resolves.toEqual({
+      status: 'fetch-failed',
+      reason: 'too-many-events',
+      cues: [],
+    });
+    expect(harness.clicks).toEqual([]);
   });
 
   it('reports too many events instead of parsing them', async () => {
-    const oversized = JSON.stringify({ events: Array.from({ length: 100_001 }, () => null) });
+    const oversized = JSON.stringify({
+      events: Array.from({ length: MAX_CAPTION_EVENTS + 1 }, () => null),
+    });
 
     await expect(fetchCaptions([track], 'video-1', deps({
       requestText: vi.fn(async () => ({ ok: true, text: oversized })),
@@ -253,7 +332,7 @@ describe('fetchCaptions', () => {
     });
   });
 
-  it('never reads Resource Timing entries', async () => {
+  it('never reads Resource Timing while recovering direct-empty via a fresh observed URL', async () => {
     const original = performance.getEntriesByType;
     const getEntriesByType = vi.fn(() => { throw new Error('must not be called'); });
     Object.defineProperty(performance, 'getEntriesByType', {
@@ -261,7 +340,17 @@ describe('fetchCaptions', () => {
       value: getEntriesByType,
     });
     try {
-      await fetchCaptions([], 'video-1', deps());
+      const harness = buttonHarness(false);
+      const result = await fetchCaptions([track], 'video-1', deps({
+        requestText: vi.fn(async (url: string) => (
+          url.includes('pot=proof') ? { ok: true, text: json3 } : { ok: true, text: '' }
+        )),
+        getObserved: vi.fn(async () => { throw new Error('bridge rejected'); }),
+        waitObserved: vi.fn(async () => observed()),
+        getSubtitleButton: () => harness.button,
+      }));
+
+      expect(result.status).toBe('available');
       expect(getEntriesByType).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(performance, 'getEntriesByType', {

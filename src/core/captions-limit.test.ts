@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { captionStatusForMeta, parseJson3 } from './captions';
+import { MAX_CAPTION_EVENTS } from './limits';
 
 describe('parseJson3 limits', () => {
   it('rejects more than 100,000 caption events before parsing them', () => {
-    const events = Array.from({ length: 100_001 }, () => null);
+    const events = Array.from({ length: MAX_CAPTION_EVENTS + 1 }, () => null);
 
     expect(() => parseJson3({ events })).toThrowError('too-many-events');
   });
