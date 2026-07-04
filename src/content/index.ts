@@ -95,7 +95,7 @@ async function runExtraction(): Promise<void> {
         cues: captions.cues,
         ranges: det.ranges,
       });
-      await send({ type: 'SESSION_THUMBS', thumbs: scan.thumbs });
+      await send({ type: 'SESSION_THUMBS_CHUNK', startIndex: 0, thumbs: scan.thumbs });
 
       overlay.setStage('장면 캡처 중…');
       // 화질 최대 설정은 캡처 직전에만 — 스캔은 64px 비교라 화질 무관이고,

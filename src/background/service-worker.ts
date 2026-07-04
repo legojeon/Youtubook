@@ -1,4 +1,5 @@
 import type { SessionData } from '../core/types';
+import { applyThumbChunk, thumbsComplete } from '../core/thumb-chunks';
 import type { Msg, MsgResponse } from '../messages';
 import { getSession, pruneSessions, saveSession, updateSession } from '../storage/db';
 
@@ -6,7 +7,7 @@ import { getSession, pruneSessions, saveSession, updateSession } from '../storag
 const pending = new Map<number, SessionData>();
 
 const HANDLED = new Set<Msg['type']>([
-  'SESSION_BEGIN', 'SESSION_THUMBS', 'SESSION_IMAGE', 'SESSION_COMMIT',
+  'SESSION_BEGIN', 'SESSION_THUMBS_CHUNK', 'SESSION_IMAGE', 'SESSION_COMMIT',
   'REQUEST_CAPTURES', 'FRAME_READY',
 ]);
 
@@ -34,10 +35,10 @@ async function handle(msg: Msg, sender: chrome.runtime.MessageSender): Promise<M
       });
       return { ok: true };
 
-    case 'SESSION_THUMBS': {
+    case 'SESSION_THUMBS_CHUNK': {
       const s = pending.get(tabId);
       if (!s) return { ok: false, reason: '조립 중인 세션이 없습니다.' };
-      s.thumbs = msg.thumbs;
+      applyThumbChunk(s.thumbs, msg.startIndex, msg.thumbs);
       return { ok: true };
     }
 
@@ -51,6 +52,9 @@ async function handle(msg: Msg, sender: chrome.runtime.MessageSender): Promise<M
     case 'SESSION_COMMIT': {
       const s = pending.get(tabId);
       if (!s) return { ok: false, reason: '조립 중인 세션이 없습니다.' };
+      if (!thumbsComplete(s.thumbs, s.scores.length)) {
+        return { ok: false, reason: '썸네일 전송이 완료되지 않았습니다.' };
+      }
       pending.delete(tabId);
       await saveSession(s);
       await pruneSessions(5);
