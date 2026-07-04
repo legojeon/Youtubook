@@ -181,6 +181,19 @@ export function validatePendingFrameBudget(dataUrl: unknown, existingChars: numb
     || !/^[A-Za-z0-9+/]*={0,2}$/.test(payload)) {
     throw new Error('Frame must be a valid JPEG data URL.');
   }
+  let decoded: string;
+  try {
+    decoded = atob(payload);
+  } catch {
+    throw new Error('Frame must be a valid JPEG data URL.');
+  }
+  if (decoded.length < 4
+    || decoded.charCodeAt(0) !== 0xff
+    || decoded.charCodeAt(1) !== 0xd8
+    || decoded.charCodeAt(decoded.length - 2) !== 0xff
+    || decoded.charCodeAt(decoded.length - 1) !== 0xd9) {
+    throw new Error('Frame must be a valid JPEG data URL.');
+  }
   if (!Number.isSafeInteger(existingChars) || existingChars < 0) {
     throw new Error('Existing frame size must be a non-negative safe integer.');
   }

@@ -37,7 +37,7 @@ function deps(overrides: Partial<SessionCommitDeps> = {}): SessionCommitDeps {
   const pending = makePending();
   return {
     getPendingSession: async () => pending,
-    getPendingFrames: async () => ({ '0.50': 'data:image/jpeg;base64,AAAA' }),
+    getPendingFrames: async () => ({ '0.50': 'data:image/jpeg;base64,/9j/2Q==' }),
     saveSession: async () => {},
     pruneSessions: async () => {},
     openResults: async () => {},
@@ -107,11 +107,11 @@ describe('commitPendingSession', () => {
 
     const result = await commitPendingSession('session-1', deps({
       getPendingSession: async () => session,
-      getPendingFrames: async () => ({ '0.50': 'data:image/jpeg;base64,AAAA' }),
+      getPendingFrames: async () => ({ '0.50': 'data:image/jpeg;base64,/9j/2Q==' }),
       saveSession: async saved => {
         expect(saved).toEqual({
           ...makeSession(),
-          images: { '0.50': 'data:image/jpeg;base64,AAAA' },
+          images: { '0.50': 'data:image/jpeg;base64,/9j/2Q==' },
         });
         calls.push('save');
       },

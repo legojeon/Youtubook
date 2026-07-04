@@ -1,4 +1,3 @@
-import { validateScanScores } from '../core/limits';
 import { repKey } from '../core/types';
 import { applyThumbChunk, validateThumbChunk } from '../core/thumb-chunks';
 import type { Msg, MsgResponse } from '../messages';
@@ -14,8 +13,10 @@ import {
   saveSession,
   updatePendingSession,
   updateSession,
+  validatePendingFrameBudget,
 } from '../storage/db';
 import { commitPendingSession } from './session-commit';
+import { isYoutubeWatchUrl, validateId, validateSessionBegin } from './session-validation';
 
 // Abandoned extraction data is removed on the next SESSION_BEGIN after 24 hours.
 export const PENDING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -56,24 +57,6 @@ const defaultStorage: ProtocolStorage = {
   updateSession,
 };
 
-function validId(value: unknown, label: string): asserts value is string {
-  if (typeof value !== 'string' || !value.trim() || value.length > 200) {
-    throw new Error(`${label} must be a non-empty string within 200 characters.`);
-  }
-}
-
-function isYoutubeWatchUrl(value: unknown): boolean {
-  if (typeof value !== 'string') return false;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:'
-      && url.hostname === 'www.youtube.com'
-      && url.pathname === '/watch';
-  } catch {
-    return false;
-  }
-}
-
 export function validateTopLevelYoutubeSender(
   sender: chrome.runtime.MessageSender,
 ): number {
@@ -113,7 +96,7 @@ async function requirePending(
   sessionId: unknown,
   tabId: number,
 ) {
-  validId(sessionId, 'Session ID');
+  validateId(sessionId, 'Session ID');
   const pending = await storage.getPendingSession(sessionId);
   if (!pending) throw new Error('조립 중인 세션이 없습니다.');
   if (pending.meta.id !== sessionId) throw new Error('Session ID does not match pending data.');
@@ -132,12 +115,7 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
       switch (msg.type) {
         case 'SESSION_BEGIN': {
           const tabId = validateTopLevelYoutubeSender(sender);
-          validId(msg.meta?.id, 'Session ID');
-          validId(msg.meta?.videoId, 'Video ID');
-          if (!isYoutubeWatchUrl(msg.meta?.videoUrl)) {
-            throw new Error('Session video URL must be a valid YouTube watch URL.');
-          }
-          validateScanScores(msg.scores);
+          validateSessionBegin(msg);
           const now = deps.now();
           await storage.deletePendingSessionsOlderThan(now - PENDING_SESSION_TTL_MS);
           await storage.deletePendingSession(msg.meta.id);
@@ -196,7 +174,7 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
 
         case 'REQUEST_CAPTURES': {
           validateResultsSender(sender, deps.resultsUrl);
-          validId(msg.sessionId, 'Session ID');
+          validateId(msg.sessionId, 'Session ID');
           const session = await storage.getSession(msg.sessionId);
           if (!session) return { ok: false, reason: '세션을 찾을 수 없습니다.' };
           try {
@@ -213,16 +191,25 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
 
         case 'FRAME_READY': {
           const tabId = validateTopLevelYoutubeSender(sender);
-          validId(msg.sessionId, 'Session ID');
-          const session = await storage.getSession(msg.sessionId);
-          if (!session) return { ok: false, reason: '세션을 찾을 수 없습니다.' };
-          if (session.meta.tabId !== tabId) {
-            throw new Error('Sender tab does not own this session.');
-          }
-          const updated = await storage.updateSession(msg.sessionId, current => ({
-            ...current,
-            images: { ...current.images, [msg.key]: msg.dataUrl },
-          }));
+          validateId(msg.sessionId, 'Session ID');
+          const updated = await storage.updateSession(msg.sessionId, current => {
+            if (current.meta.tabId !== tabId) {
+              throw new Error('Sender tab does not own this session.');
+            }
+            if (typeof msg.key !== 'string'
+              || !current.ranges.some(range => repKey(range.repSec) === msg.key)) {
+              throw new Error('Frame key is not expected for this session.');
+            }
+            const existingChars = Object.entries(current.images).reduce(
+              (sum, [key, dataUrl]) => sum + (key === msg.key ? 0 : dataUrl.length),
+              0,
+            );
+            validatePendingFrameBudget(msg.dataUrl, existingChars);
+            return {
+              ...current,
+              images: { ...current.images, [msg.key]: msg.dataUrl },
+            };
+          });
           if (!updated) return { ok: false, reason: '세션을 찾을 수 없습니다.' };
           return { ok: true };
         }

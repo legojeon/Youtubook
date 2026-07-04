@@ -7,12 +7,16 @@ import {
   getPendingFrames,
   getPendingSession,
   getSession,
+  saveSession,
 } from '../storage/db';
 import {
   createSessionMessageHandler,
   PENDING_SESSION_TTL_MS,
   type BackgroundMessageDeps,
 } from './session-protocol';
+
+const jpegWithInteriorBase64Chars = (chars: number): string =>
+  `data:image/jpeg;base64,/9j/${'A'.repeat(chars)}/9k=`;
 
 const youtubeSender = (overrides: Partial<chrome.runtime.MessageSender> = {}): chrome.runtime.MessageSender => ({
   tab: { id: 7 } as chrome.tabs.Tab,
@@ -58,7 +62,7 @@ describe('extraction protocol persistence', () => {
     }, youtubeSender())).toEqual({ ok: true });
     expect(await firstWorker({
       type: 'SESSION_IMAGE', sessionId: 'session-1', key: '0.50',
-      dataUrl: 'data:image/jpeg;base64,AAAA',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
     }, youtubeSender())).toEqual({ ok: true });
 
     const restartedWorker = createSessionMessageHandler(deps());
@@ -67,7 +71,7 @@ describe('extraction protocol persistence', () => {
     }, youtubeSender())).toEqual({ ok: true });
 
     expect((await getSession('session-1'))?.images).toEqual({
-      '0.50': 'data:image/jpeg;base64,AAAA',
+      '0.50': 'data:image/jpeg;base64,/9j/2Q==',
     });
     expect(await getPendingSession('session-1')).toBeNull();
     expect(await getPendingFrames('session-1')).toEqual({});
@@ -119,6 +123,65 @@ describe('extraction protocol persistence', () => {
   });
 
   it.each([
+    ['invalid metadata type', { meta: { ...begin.meta, title: 42 } }],
+    ['duration above the supported bound', { meta: { ...begin.meta, durationSec: 7200.01 } }],
+    ['cue outside the video duration', {
+      cues: [{ startSec: 0, endSec: 2, text: 'caption' }],
+    }],
+    ['oversized cue text', {
+      cues: [{ startSec: 0, endSec: 1, text: 'x'.repeat(10_001) }],
+    }],
+    ['overlapping ranges', {
+      ranges: [
+        { startSec: 0, endSec: 0.75, repSec: 0.5 },
+        { startSec: 0.5, endSec: 1, repSec: 0.75 },
+      ],
+    }],
+    ['too many ranges', {
+      ranges: Array.from({ length: 301 }, (_, i) => ({
+        startSec: i / 301,
+        endSec: (i + 1) / 301,
+        repSec: (i + 0.5) / 301,
+      })),
+    }],
+  ])('rejects %s without replacing existing pending data', async (_label, patch) => {
+    const handle = createSessionMessageHandler(deps());
+    expect(await handle(begin, youtubeSender())).toEqual({ ok: true });
+    const original = await getPendingSession('session-1');
+
+    const response = await handle({ ...begin, ...patch } as typeof begin, youtubeSender());
+
+    expect(response.ok).toBe(false);
+    expect(await getPendingSession('session-1')).toEqual(original);
+  });
+
+  it('accepts a fully populated production payload at supported bounds', async () => {
+    const payload: typeof begin = {
+      ...begin,
+      meta: {
+        ...begin.meta,
+        title: 'Production video',
+        durationSec: 7200,
+        videoWidth: 3840,
+        videoHeight: 2160,
+        sampleIntervalSec: 2,
+        sensitivity: 10,
+        captionsAvailable: true,
+        captionStatus: 'available',
+        truncated: true,
+        createdAt: 1_700_000_000_000,
+      },
+      scores: [0, 12],
+      cues: [{ startSec: 0, endSec: 2, text: 'caption' }],
+      ranges: [{ startSec: 0, endSec: 7200, repSec: 3600 }],
+    };
+
+    expect(await createSessionMessageHandler(deps())(payload, youtubeSender()))
+      .toEqual({ ok: true });
+    expect((await getPendingSession('session-1'))?.meta.title).toBe('Production video');
+  });
+
+  it.each([
     ['save', { storage: { saveSession: async () => { throw new Error('save failed'); } } }],
     ['open', { openResults: async () => { throw new Error('open failed'); } }],
   ])('retains persisted pending records when %s fails', async (_label, failureDeps) => {
@@ -129,7 +192,7 @@ describe('extraction protocol persistence', () => {
     }, youtubeSender());
     await handle({
       type: 'SESSION_IMAGE', sessionId: 'session-1', key: '0.50',
-      dataUrl: 'data:image/jpeg;base64,AAAA',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
     }, youtubeSender());
 
     const response = await handle({
@@ -182,7 +245,7 @@ describe('sender and session validation', () => {
     }, youtubeSender());
     await handle({
       type: 'SESSION_IMAGE', sessionId: 'session-1', key: '0.50',
-      dataUrl: 'data:image/jpeg;base64,AAAA',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
     }, youtubeSender());
     await handle({ type: 'SESSION_COMMIT', sessionId: 'session-1' }, youtubeSender());
 
@@ -195,7 +258,7 @@ describe('sender and session validation', () => {
 
     const frame: Msg = {
       type: 'FRAME_READY', sessionId: 'session-1', key: '0.50',
-      dataUrl: 'data:image/jpeg;base64,AAAA',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
     };
     expect((await handle(frame, youtubeSender({ tab: { id: 8 } as chrome.tabs.Tab }))).ok).toBe(false);
     expect((await handle(frame, youtubeSender({ url: 'https://example.com/watch?v=video-1' }))).ok)
@@ -205,12 +268,74 @@ describe('sender and session validation', () => {
   });
 });
 
+describe('committed frame validation', () => {
+  it.each([
+    ['invalid session ID', '', '0.50', 'data:image/jpeg;base64,/9j/2Q=='],
+    ['unexpected key', 'session-1', '9.99', 'data:image/jpeg;base64,/9j/2Q=='],
+    ['missing JPEG markers', 'session-1', '0.50', 'data:image/jpeg;base64,AAAA'],
+    [
+      'oversized JPEG',
+      'session-1',
+      '0.50',
+      jpegWithInteriorBase64Chars(16 * 1024 * 1024),
+    ],
+  ])('rejects %s without mutating the committed session', async (
+    _label,
+    sessionId,
+    key,
+    dataUrl,
+  ) => {
+    const handle = createSessionMessageHandler(deps());
+    await handle(begin, youtubeSender());
+    await handle({
+      type: 'SESSION_THUMBS_CHUNK', sessionId: 'session-1', startIndex: 0, thumbs: ['thumb'],
+    }, youtubeSender());
+    await handle({
+      type: 'SESSION_IMAGE', sessionId: 'session-1', key: '0.50',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+    }, youtubeSender());
+    await handle({ type: 'SESSION_COMMIT', sessionId: 'session-1' }, youtubeSender());
+    const original = await getSession('session-1');
+
+    const response = await handle({ type: 'FRAME_READY', sessionId, key, dataUrl }, youtubeSender());
+
+    expect(response.ok).toBe(false);
+    expect(await getSession('session-1')).toEqual(original);
+  });
+
+  it('rejects a frame that exceeds the aggregate committed-image budget', async () => {
+    const ranges = Array.from({ length: 9 }, (_, i) => ({
+      startSec: i, endSec: i + 1, repSec: i + 0.5,
+    }));
+    const nearLimit = jpegWithInteriorBase64Chars(15 * 1024 * 1024);
+    const images = Object.fromEntries(
+      ranges.slice(0, 8).map(range => [range.repSec.toFixed(2), nearLimit]),
+    );
+    await saveSession({
+      meta: { ...begin.meta, tabId: 7, durationSec: ranges.length },
+      scores: [0],
+      thumbs: ['thumb'],
+      cues: [],
+      ranges,
+      images,
+    });
+    const handle = createSessionMessageHandler(deps());
+
+    const response = await handle({
+      type: 'FRAME_READY', sessionId: 'session-1', key: '8.50', dataUrl: nearLimit,
+    }, youtubeSender());
+
+    expect(response.ok).toBe(false);
+    expect((await getSession('session-1'))?.images).toEqual(images);
+  });
+});
+
 describe('pending image validation', () => {
   it.each([
-    ['unexpected key', '9.99', 'data:image/jpeg;base64,AAAA'],
-    ['non-JPEG', '0.50', 'data:image/png;base64,AAAA'],
+    ['unexpected key', '9.99', 'data:image/jpeg;base64,/9j/2Q=='],
+    ['non-JPEG', '0.50', 'data:image/png;base64,/9j/2Q=='],
     ['malformed JPEG', '0.50', 'data:image/jpeg;base64,%%%'],
-    ['oversized JPEG', '0.50', `data:image/jpeg;base64,${'A'.repeat(16 * 1024 * 1024)}`],
+    ['oversized JPEG', '0.50', jpegWithInteriorBase64Chars(16 * 1024 * 1024)],
   ])('rejects %s before persistence', async (_label, key, dataUrl) => {
     const handle = createSessionMessageHandler(deps());
     await handle(begin, youtubeSender());
@@ -228,8 +353,12 @@ describe('pending image validation', () => {
       startSec: i, endSec: i + 1, repSec: i + 0.5,
     }));
     const handle = createSessionMessageHandler(deps());
-    await handle({ ...begin, ranges }, youtubeSender());
-    const nearLimit = `data:image/jpeg;base64,${'A'.repeat(15 * 1024 * 1024)}`;
+    await handle({
+      ...begin,
+      meta: { ...begin.meta, durationSec: ranges.length },
+      ranges,
+    }, youtubeSender());
+    const nearLimit = jpegWithInteriorBase64Chars(15 * 1024 * 1024);
     for (const range of ranges.slice(0, 8)) {
       expect((await handle({
         type: 'SESSION_IMAGE', sessionId: 'session-1', key: range.repSec.toFixed(2),

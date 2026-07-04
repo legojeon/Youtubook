@@ -90,14 +90,14 @@ describe('sendSessionImage', () => {
   it('throws immediately when an image response fails', async () => {
     const send = vi.fn(async () => ({ ok: false, reason: 'image rejected' }));
 
-    await expect(sendSessionImage(send, 'session', '0.50', 'data:image/jpeg;base64,AAAA'))
+    await expect(sendSessionImage(send, 'session', '0.50', 'data:image/jpeg;base64,/9j/2Q=='))
       .rejects.toThrow('image rejected');
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith({
       type: 'SESSION_IMAGE',
       sessionId: 'session',
       key: '0.50',
-      dataUrl: 'data:image/jpeg;base64,AAAA',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
     });
   });
 });
