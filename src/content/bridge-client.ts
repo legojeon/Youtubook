@@ -1,4 +1,5 @@
 import type { CaptionTrackInfo } from '../core/captions';
+import type { ObservedTimedtextUrl, TimedtextQuery } from '../core/timedtext';
 
 export interface PlayerInfo {
   videoId: string | null;
@@ -9,7 +10,7 @@ export interface PlayerInfo {
 
 let seq = 0;
 
-function bridgeCall<T>(cmd: string, timeoutMs = 2000): Promise<T> {
+function bridgeCall<T>(cmd: string, payload?: unknown, timeoutMs = 2000): Promise<T> {
   return new Promise((resolve, reject) => {
     const reqId = `yb-${++seq}`;
     const timer = setTimeout(() => {
@@ -31,9 +32,13 @@ function bridgeCall<T>(cmd: string, timeoutMs = 2000): Promise<T> {
       window.removeEventListener('message', onMsg);
     };
     window.addEventListener('message', onMsg);
-    window.postMessage({ source: 'youtubook-cs', cmd, reqId }, '*');
+    window.postMessage({ source: 'youtubook-cs', cmd, reqId, payload }, '*');
   });
 }
 
 export const getPlayerInfo = () => bridgeCall<PlayerInfo>('GET_PLAYER_INFO');
 export const setMaxQuality = () => bridgeCall<{ ok: boolean }>('SET_MAX_QUALITY');
+export const getTimedtextUrl = (query: TimedtextQuery) =>
+  bridgeCall<ObservedTimedtextUrl | null>('GET_TIMEDTEXT_URL', query);
+export const waitForTimedtextUrl = (query: TimedtextQuery) =>
+  bridgeCall<ObservedTimedtextUrl | null>('WAIT_FOR_TIMEDTEXT_URL', query, 7_000);
