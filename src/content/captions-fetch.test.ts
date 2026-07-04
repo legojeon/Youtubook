@@ -30,10 +30,12 @@ interface ButtonHarness {
   button: Pick<HTMLButtonElement, 'getAttribute' | 'click'>;
   clicks: boolean[];
   isOn: () => boolean;
+  settle: (expected: boolean) => boolean;
 }
 
-function buttonHarness(initiallyOn: boolean): ButtonHarness {
+function buttonHarness(initiallyOn: boolean, delayed = false): ButtonHarness {
   let on = initiallyOn;
+  let pending: boolean | null = null;
   const clicks: boolean[] = [];
   return {
     button: {
@@ -43,25 +45,42 @@ function buttonHarness(initiallyOn: boolean): ButtonHarness {
         return null;
       },
       click() {
-        on = !on;
-        clicks.push(on);
+        const expected = !on;
+        clicks.push(expected);
+        if (delayed) pending = expected;
+        else on = expected;
       },
     },
     clicks,
     isOn: () => on,
+    settle(expected: boolean) {
+      if (pending === expected) {
+        on = expected;
+        pending = null;
+      }
+      return on === expected;
+    },
   };
 }
 
-function deps(overrides: Partial<CaptionFetchDeps> = {}): CaptionFetchDeps {
+type TestDeps = CaptionFetchDeps & {
+  now(): number;
+  waitForPressed(button: Pick<HTMLButtonElement, 'getAttribute' | 'click'>, expected: boolean):
+  Promise<boolean>;
+};
+
+function deps(overrides: Partial<TestDeps> = {}): TestDeps {
   return {
     requestText: vi.fn(async () => ({ ok: false, text: '' })),
     getObserved: vi.fn(async () => null),
     waitObserved: vi.fn(async () => null),
     getSubtitleButton: () => null,
-    nextTurn: async () => {},
+    now: () => 100,
+    waitForPressed: async (button, expected) =>
+      button.getAttribute('aria-pressed') === String(expected),
     preferredLanguages: ['en'],
     ...overrides,
-  };
+  } as TestDeps;
 }
 
 describe('fetchCaptions', () => {
@@ -82,6 +101,43 @@ describe('fetchCaptions', () => {
       cues: [{ startSec: 1, endSec: 3, text: 'hello' }],
     });
     expect(requestText).toHaveBeenCalledWith(`${track.baseUrl}&fmt=json3`);
+  });
+
+  it('replaces duplicate direct format parameters with one json3 value', async () => {
+    const requestText = vi.fn(async (_url: string) => ({ ok: true, text: json3 }));
+    const duplicateFormatTrack = {
+      ...track,
+      baseUrl: `${track.baseUrl}&fmt=srv3&fmt=vtt`,
+    };
+
+    const result = await fetchCaptions(
+      [duplicateFormatTrack],
+      'video-1',
+      deps({ requestText }),
+    );
+
+    expect(result.status).toBe('available');
+    const requested = new URL(requestText.mock.calls[0][0]);
+    expect(requested.searchParams.getAll('fmt')).toEqual(['json3']);
+  });
+
+  it('does not request a direct URL whose video ID does not match', async () => {
+    const requestText = vi.fn(async (url: string) => (
+      url.includes('pot=proof') ? { ok: true, text: json3 } : { ok: true, text: '' }
+    ));
+    const mismatchedTrack = {
+      ...track,
+      baseUrl: 'https://www.youtube.com/api/timedtext?v=other-video&lang=en',
+    };
+
+    const result = await fetchCaptions([mismatchedTrack], 'video-1', deps({
+      requestText,
+      getObserved: vi.fn(async () => observed()),
+    }));
+
+    expect(result.status).toBe('available');
+    expect(requestText).toHaveBeenCalledTimes(1);
+    expect(requestText.mock.calls[0][0]).toContain('pot=proof');
   });
 
   it('reuses an existing observed POT URL after a direct empty response', async () => {
@@ -166,10 +222,82 @@ describe('fetchCaptions', () => {
     }));
   });
 
+  it('waits for delayed CC-on and restoration transitions when initially off', async () => {
+    const harness = buttonHarness(false, true);
+    const waits: boolean[] = [];
+
+    const result = await fetchCaptions([track], 'video-1', deps({
+      requestText: vi.fn(async (url: string) => (
+        url.includes('pot=proof') ? { ok: true, text: json3 } : { ok: true, text: '' }
+      )),
+      waitObserved: vi.fn(async () => observed()),
+      getSubtitleButton: () => harness.button,
+      waitForPressed: vi.fn(async (_button, expected: boolean) => {
+        waits.push(expected);
+        return harness.settle(expected);
+      }),
+    }));
+
+    expect(result.status).toBe('available');
+    expect(waits).toEqual([true, false]);
+    expect(harness.clicks).toEqual([true, false]);
+    expect(harness.isOn()).toBe(false);
+  });
+
+  it('waits for delayed CC off and on transitions when initially on', async () => {
+    const harness = buttonHarness(true, true);
+    const waits: boolean[] = [];
+
+    const result = await fetchCaptions([track], 'video-1', deps({
+      requestText: vi.fn(async (url: string) => (
+        url.includes('pot=proof') ? { ok: true, text: json3 } : { ok: true, text: '' }
+      )),
+      waitObserved: vi.fn(async () => observed()),
+      getSubtitleButton: () => harness.button,
+      waitForPressed: vi.fn(async (_button, expected: boolean) => {
+        waits.push(expected);
+        return harness.settle(expected);
+      }),
+    }));
+
+    expect(result.status).toBe('available');
+    expect(waits).toEqual([false, true]);
+    expect(harness.clicks).toEqual([false, true]);
+    expect(harness.isOn()).toBe(true);
+  });
+
+  it('returns player-timeout when delayed CC restoration does not complete', async () => {
+    const harness = buttonHarness(false, true);
+    const waits: boolean[] = [];
+
+    await expect(fetchCaptions([track], 'video-1', deps({
+      requestText: vi.fn(async (url: string) => (
+        url.includes('pot=proof') ? { ok: true, text: json3 } : { ok: true, text: '' }
+      )),
+      waitObserved: vi.fn(async () => observed()),
+      getSubtitleButton: () => harness.button,
+      waitForPressed: vi.fn(async (_button, expected: boolean) => {
+        waits.push(expected);
+        if (expected) return harness.settle(true);
+        return false;
+      }),
+    }))).resolves.toEqual({
+      status: 'fetch-failed',
+      reason: 'player-timeout',
+      cues: [],
+    });
+
+    expect(waits).toEqual([true, false]);
+    expect(harness.clicks).toEqual([true, false]);
+  });
+
   it('cycles CC off and on and leaves it on when initially on', async () => {
     const harness = buttonHarness(true);
     const order: string[] = [];
-    const nextTurn = vi.fn(async () => { order.push('turn'); });
+    const waitForPressed = vi.fn(async (_button, expected: boolean) => {
+      order.push(`pressed:${expected}`);
+      return true;
+    });
     const waitObserved = vi.fn(async () => {
       order.push('wait');
       return observed();
@@ -181,21 +309,27 @@ describe('fetchCaptions', () => {
       )),
       waitObserved,
       getSubtitleButton: () => harness.button,
-      nextTurn,
+      waitForPressed,
     }));
 
     expect(result.status).toBe('available');
     expect(harness.clicks).toEqual([false, true]);
     expect(harness.isOn()).toBe(true);
-    expect(order).toEqual(['turn', 'wait']);
+    expect(order).toEqual(['pressed:false', 'pressed:true', 'wait']);
   });
 
-  it('restores CC on when cycling fails between the off and on clicks', async () => {
-    const harness = buttonHarness(true);
+  it('restores CC on when waiting for the off transition fails', async () => {
+    const harness = buttonHarness(true, true);
+    const waits: boolean[] = [];
 
     await expect(fetchCaptions([track], 'video-1', deps({
       getSubtitleButton: () => harness.button,
-      nextTurn: vi.fn(async () => { throw new Error('turn failed'); }),
+      waitForPressed: vi.fn(async (_button, expected: boolean) => {
+        waits.push(expected);
+        harness.settle(expected);
+        if (waits.length === 1) throw new Error('transition wait failed');
+        return true;
+      }),
     }))).resolves.toEqual({
       status: 'fetch-failed',
       reason: 'player-timeout',
@@ -203,6 +337,7 @@ describe('fetchCaptions', () => {
     });
     expect(harness.clicks).toEqual([false, true]);
     expect(harness.isOn()).toBe(true);
+    expect(waits).toEqual([false, true]);
   });
 
   it('reports player-timeout when waiting returns no URL', async () => {
@@ -232,6 +367,37 @@ describe('fetchCaptions', () => {
     expect(result.status).toBe('available');
     expect(harness.clicks).toEqual([true, false]);
   });
+
+  it.each(['null', 'rejected'] as const)(
+    'uses the lookup start cutoff when the prior lookup is %s',
+    async outcome => {
+      const harness = buttonHarness(false);
+      const order: string[] = [];
+      const result = await fetchCaptions([track], 'video-1', deps({
+        now: () => {
+          order.push('now');
+          return 100;
+        },
+        getObserved: vi.fn(async () => {
+          order.push('lookup');
+          await Promise.resolve();
+          if (outcome === 'rejected') throw new Error('bridge rejected');
+          return null;
+        }),
+        getSubtitleButton: () => harness.button,
+        waitObserved: vi.fn(async query => {
+          expect(query.afterStartTime).toBe(100);
+          return observed(undefined, 150);
+        }),
+        requestText: vi.fn(async (url: string) => (
+          url.includes('pot=proof') ? { ok: true, text: json3 } : { ok: true, text: '' }
+        )),
+      }));
+
+      expect(order.slice(0, 2)).toEqual(['now', 'lookup']);
+      expect(result.status).toBe('available');
+    },
+  );
 
   it('turns a fresh bridge wait rejection into a fetch-failed result', async () => {
     const harness = buttonHarness(false);

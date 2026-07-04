@@ -24,7 +24,8 @@ export interface CaptionFetchDeps {
   getObserved(query: TimedtextQuery): Promise<ObservedTimedtextUrl | null>;
   waitObserved(query: TimedtextQuery): Promise<ObservedTimedtextUrl | null>;
   getSubtitleButton(): SubtitleButton | null;
-  nextTurn(): Promise<void>;
+  now(): number;
+  waitForPressed(button: SubtitleButton, expected: boolean): Promise<boolean>;
   preferredLanguages: readonly string[];
 }
 
@@ -59,8 +60,30 @@ Promise<Json3FetchResult> {
   }
 }
 
-function directJson3Url(baseUrl: string): string {
-  return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}fmt=json3`;
+function directJson3Url(baseUrl: string, videoId: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return null;
+  }
+
+  if (
+    url.protocol !== 'https:'
+    || url.hostname !== 'www.youtube.com'
+    || url.pathname !== '/api/timedtext'
+    || url.username
+    || url.password
+  ) {
+    return null;
+  }
+
+  const videoIds = url.searchParams.getAll('v');
+  if (videoIds.length !== 1 || videoIds[0] !== videoId) return null;
+
+  url.searchParams.delete('fmt');
+  url.searchParams.set('fmt', 'json3');
+  return url.toString();
 }
 
 function failed(reason: Exclude<CaptionFetchResult, { status: 'available' | 'absent' }>['reason']):
@@ -90,6 +113,19 @@ function observedFetchResult(result: ObservedFetchResult): CaptionFetchResult {
   return result.status === 'available' ? result : observedFetchFailure(result);
 }
 
+async function waitForBrowserPressed(
+  button: SubtitleButton,
+  expected: boolean,
+): Promise<boolean> {
+  const expectedValue = String(expected);
+  if (button.getAttribute('aria-pressed') === expectedValue) return true;
+  for (let elapsed = 25; elapsed <= 500; elapsed += 25) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+    if (button.getAttribute('aria-pressed') === expectedValue) return true;
+  }
+  return false;
+}
+
 const browserDeps: CaptionFetchDeps = {
   async requestText(url) {
     const response = await fetch(url);
@@ -98,9 +134,23 @@ const browserDeps: CaptionFetchDeps = {
   getObserved: getTimedtextUrl,
   waitObserved: waitForTimedtextUrl,
   getSubtitleButton: () => document.querySelector<HTMLButtonElement>('.ytp-subtitles-button'),
-  nextTurn: () => new Promise(resolve => setTimeout(resolve, 0)),
+  now: () => performance.now(),
+  waitForPressed: waitForBrowserPressed,
   preferredLanguages: navigator.languages,
 };
+
+async function transitionButton(
+  button: SubtitleButton,
+  expected: boolean,
+  deps: CaptionFetchDeps,
+): Promise<boolean> {
+  try {
+    button.click();
+    return await deps.waitForPressed(button, expected);
+  } catch {
+    return false;
+  }
+}
 
 export async function fetchCaptions(
   tracks: CaptionTrackInfo[],
@@ -110,57 +160,69 @@ export async function fetchCaptions(
   const track = pickCaptionTrack(tracks, [...deps.preferredLanguages]);
   if (!track) return { status: 'absent', cues: [] };
 
-  const direct = await fetchJson3(directJson3Url(track.baseUrl), deps.requestText);
-  if (direct.status === 'available') return direct;
-  if (direct.status === 'too-many-events') return failed('too-many-events');
+  const directUrl = directJson3Url(track.baseUrl, videoId);
+  let hasValidFallbackUrl = directUrl !== null;
+  if (directUrl) {
+    const direct = await fetchJson3(directUrl, deps.requestText);
+    if (direct.status === 'available') return direct;
+    if (direct.status === 'too-many-events') return failed('too-many-events');
+  }
 
   const query: TimedtextQuery = {
     videoId,
     languageCode: track.languageCode,
     kind: track.kind,
   };
+  const lookupStartedAt = deps.now();
   let prior: ObservedTimedtextUrl | null = null;
   try {
     prior = await deps.getObserved(query);
   } catch {
     // A failed cache lookup does not prevent the player from producing a fresh URL.
   }
-  const cutoff = prior?.startTime ?? performance.now();
+  const cutoff = prior?.startTime ?? lookupStartedAt;
   if (prior) {
     const priorResult = await fetchObservedJson3(prior, videoId, deps);
     if (priorResult.status === 'available') return priorResult;
     if (priorResult.status === 'too-many-events') {
       return observedFetchResult(priorResult);
     }
+    if (priorResult.status !== 'invalid-url') hasValidFallbackUrl = true;
   }
 
   const button = deps.getSubtitleButton();
   if (!button || button.getAttribute('aria-disabled') === 'true') {
-    return failed('no-observed-url');
+    return failed(hasValidFallbackUrl ? 'no-observed-url' : 'invalid-url');
   }
 
   const wasOn = button.getAttribute('aria-pressed') === 'true';
+  let result: CaptionFetchResult = failed('player-timeout');
   try {
+    let transitioned: boolean;
     if (wasOn) {
-      button.click();
-      await deps.nextTurn();
-      button.click();
+      transitioned = await transitionButton(button, false, deps);
+      if (transitioned) transitioned = await transitionButton(button, true, deps);
     } else {
-      button.click();
+      transitioned = await transitionButton(button, true, deps);
     }
 
-    let fresh: ObservedTimedtextUrl | null;
-    try {
-      fresh = await deps.waitObserved({ ...query, afterStartTime: cutoff });
-    } catch {
-      return failed('player-timeout');
+    if (transitioned) {
+      let fresh: ObservedTimedtextUrl | null = null;
+      try {
+        fresh = await deps.waitObserved({ ...query, afterStartTime: cutoff });
+      } catch {
+        // A bridge timeout is reported after restoring the original CC state.
+      }
+      if (fresh) result = observedFetchResult(await fetchObservedJson3(fresh, videoId, deps));
     }
-    if (!fresh) return failed('player-timeout');
-    return observedFetchResult(await fetchObservedJson3(fresh, videoId, deps));
   } catch {
-    return failed('player-timeout');
+    result = failed('player-timeout');
   } finally {
     const isOn = button.getAttribute('aria-pressed') === 'true';
-    if (isOn !== wasOn) button.click();
+    if (isOn !== wasOn) {
+      const restored = await transitionButton(button, wasOn, deps);
+      if (!restored) result = failed('player-timeout');
+    }
   }
+  return result;
 }
