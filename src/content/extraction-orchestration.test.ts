@@ -42,13 +42,14 @@ describe('prepareCaptionedScan', () => {
     });
     const detectScenes = vi.fn(() => ({ ranges: [], truncated: false }));
 
+    const signal = new AbortController().signal;
     const result = await prepareCaptionedScan({
       video: { duration: 7200 } as HTMLVideoElement,
       info,
       urlVideoId: 'url-video',
       onProgress: () => {},
       onStage: events.push.bind(events),
-      signal: new AbortController().signal,
+      signal,
     }, { fetchCaptions, scanVideo, detectScenes });
 
     expect(events).toEqual([
@@ -58,6 +59,7 @@ describe('prepareCaptionedScan', () => {
       'scan:2',
     ]);
     expect(result.videoId).toBe('player-video');
+    expect(fetchCaptions).toHaveBeenCalledWith(info.captionTracks, 'player-video', signal);
     expect(result.sampleIntervalSec).toBe(2);
     expect(scanMetaFields(result.captions, result.sampleIntervalSec)).toEqual({
       sampleIntervalSec: 2,
@@ -68,6 +70,37 @@ describe('prepareCaptionedScan', () => {
       durationSec: 7200,
       sampleIntervalSec: 2,
     }));
+  });
+
+  it('rejects caption cancellation without starting the scene scan', async () => {
+    const controller = new AbortController();
+    const stages: string[] = [];
+    const fetchCaptions = vi.fn(async (
+      _tracks,
+      _videoId,
+      signal?: AbortSignal,
+    ) => {
+      controller.abort();
+      signal?.throwIfAborted();
+      return { status: 'absent' as const, cues: [] as [] };
+    });
+    const scanVideo = vi.fn();
+
+    await expect(prepareCaptionedScan({
+      video: { duration: 60 } as HTMLVideoElement,
+      info,
+      urlVideoId: null,
+      onProgress: () => {},
+      onStage: stage => stages.push(stage),
+      signal: controller.signal,
+    }, {
+      fetchCaptions,
+      scanVideo,
+      detectScenes: vi.fn(),
+    })).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(scanVideo).not.toHaveBeenCalled();
+    expect(stages).toEqual(['자막 추출 중…']);
   });
 
   it('uses a fetch-failed empty-cue fallback without calling caption fetch when info is null', async () => {

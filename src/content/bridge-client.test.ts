@@ -30,7 +30,7 @@ function installFakeWindow(replyPayload?: unknown) {
     },
   };
   vi.stubGlobal('window', fakeWindow);
-  return posted;
+  return { posted, listenerCount: () => listeners.size };
 }
 
 describe('bridge client', () => {
@@ -46,7 +46,7 @@ describe('bridge client', () => {
       videoId: 'video-1',
       startTime: 42,
     };
-    const posted = installFakeWindow(observed);
+    const { posted } = installFakeWindow(observed);
     const query = { videoId: 'video-1', afterStartTime: 12 };
 
     await expect(getTimedtextUrl(query)).resolves.toEqual(observed);
@@ -67,12 +67,28 @@ describe('bridge client', () => {
   });
 
   it('keeps existing commands payload-free', async () => {
-    const posted = installFakeWindow({ ok: true });
+    const { posted } = installFakeWindow({ ok: true });
 
     await setMaxQuality();
     await getPlayerInfo();
 
     expect(posted).toHaveLength(2);
     expect(posted.every(message => !Object.hasOwn(message, 'payload'))).toBe(true);
+  });
+
+  it('aborts a timedtext wait promptly and removes all listeners and its timer', async () => {
+    const { listenerCount } = installFakeWindow();
+    const controller = new AbortController();
+    const removeAbortListener = vi.spyOn(controller.signal, 'removeEventListener');
+
+    const result = waitForTimedtextUrl({ videoId: 'video-1' }, controller.signal);
+    expect(listenerCount()).toBe(1);
+
+    controller.abort();
+
+    await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    expect(listenerCount()).toBe(0);
+    expect(removeAbortListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -21,7 +21,7 @@ describe('captionPresentationForMeta', () => {
 
   it('shows a retry warning for caption fetch failures', () => {
     expect(captionPresentationForMeta({
-      captionsAvailable: true,
+      captionsAvailable: false,
       captionStatus: 'fetch-failed',
     })).toEqual({
       txtEnabled: false,

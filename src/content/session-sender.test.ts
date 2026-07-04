@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { validateScanScores } from '../core/limits';
+import {
+  applyThumbChunk,
+  thumbsComplete,
+  validateThumbChunk,
+} from '../core/thumb-chunks';
 import type { Msg, MsgResponse } from '../messages';
 import { sendSessionStart } from './session-sender';
 
@@ -18,14 +24,21 @@ const begin = {
 describe('sendSessionStart', () => {
   it('awaits and checks begin plus 100/100/5 thumbnail chunks sequentially', async () => {
     const thumbs = Array.from({ length: 205 }, (_, i) => `thumb-${i}`);
+    const begin205 = { ...begin, scores: Array.from({ length: 205 }, () => 0) };
+    const assembled: string[] = [];
     const calls: Msg[] = [];
     const releases: Array<() => void> = [];
     const send = vi.fn((message: Msg) => {
       calls.push(message);
+      if (message.type === 'SESSION_BEGIN') validateScanScores(message.scores);
+      if (message.type === 'SESSION_THUMBS_CHUNK') {
+        validateThumbChunk(message.startIndex, message.thumbs, begin205.scores.length);
+        applyThumbChunk(assembled, message.startIndex, message.thumbs);
+      }
       return new Promise<MsgResponse>(resolve => releases.push(() => resolve({ ok: true })));
     });
 
-    const pending = sendSessionStart(send, begin, thumbs);
+    const pending = sendSessionStart(send, begin205, thumbs);
     expect(calls.map(message => message.type)).toEqual(['SESSION_BEGIN']);
 
     for (let expectedCalls = 2; expectedCalls <= 4; expectedCalls++) {
@@ -42,18 +55,26 @@ describe('sendSessionStart', () => {
     );
     expect(chunks.map(chunk => [chunk.startIndex, chunk.thumbs.length]))
       .toEqual([[0, 100], [100, 100], [200, 5]]);
+    expect(thumbsComplete(assembled, begin205.scores.length)).toBe(true);
   });
 
   it('stops before the third chunk when the middle chunk response fails', async () => {
     const thumbs = Array.from({ length: 205 }, (_, i) => `thumb-${i}`);
+    const begin205 = { ...begin, scores: Array.from({ length: 205 }, () => 0) };
+    const calls: Msg[] = [];
     let response = 0;
-    const send = vi.fn(async (): Promise<MsgResponse> => {
+    const send = vi.fn(async (message: Msg): Promise<MsgResponse> => {
+      calls.push(message);
       response++;
       return response === 3 ? { ok: false, reason: 'middle failed' } : { ok: true };
     });
 
-    await expect(sendSessionStart(send, begin, thumbs)).rejects.toThrow('middle failed');
+    await expect(sendSessionStart(send, begin205, thumbs)).rejects.toThrow('middle failed');
     expect(send).toHaveBeenCalledTimes(3); // begin + first + failed middle
+    expect(calls.filter(
+      (message): message is Extract<Msg, { type: 'SESSION_THUMBS_CHUNK' }> =>
+        message.type === 'SESSION_THUMBS_CHUNK',
+    ).map(message => message.startIndex)).toEqual([0, 100]);
   });
 
   it('does not send thumbnails when SESSION_BEGIN fails', async () => {

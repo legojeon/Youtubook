@@ -10,8 +10,21 @@ export interface PlayerInfo {
 
 let seq = 0;
 
-function bridgeCall<T>(cmd: string, payload?: unknown, timeoutMs = 2000): Promise<T> {
+function aborted(): DOMException {
+  return new DOMException('사용자가 취소했습니다', 'AbortError');
+}
+
+function bridgeCall<T>(
+  cmd: string,
+  payload?: unknown,
+  timeoutMs = 2000,
+  signal?: AbortSignal,
+): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(aborted());
+      return;
+    }
     const reqId = `yb-${++seq}`;
     const timer = setTimeout(() => {
       cleanup();
@@ -27,11 +40,17 @@ function bridgeCall<T>(cmd: string, payload?: unknown, timeoutMs = 2000): Promis
       }
       resolve(d.payload as T);
     };
+    const onAbort = () => {
+      cleanup();
+      reject(aborted());
+    };
     const cleanup = () => {
       clearTimeout(timer);
       window.removeEventListener('message', onMsg);
+      signal?.removeEventListener('abort', onAbort);
     };
     window.addEventListener('message', onMsg);
+    signal?.addEventListener('abort', onAbort, { once: true });
     window.postMessage({
       source: 'youtubook-cs',
       cmd,
@@ -43,7 +62,7 @@ function bridgeCall<T>(cmd: string, payload?: unknown, timeoutMs = 2000): Promis
 
 export const getPlayerInfo = () => bridgeCall<PlayerInfo>('GET_PLAYER_INFO');
 export const setMaxQuality = () => bridgeCall<{ ok: boolean }>('SET_MAX_QUALITY');
-export const getTimedtextUrl = (query: TimedtextQuery) =>
-  bridgeCall<ObservedTimedtextUrl | null>('GET_TIMEDTEXT_URL', query);
-export const waitForTimedtextUrl = (query: TimedtextQuery) =>
-  bridgeCall<ObservedTimedtextUrl | null>('WAIT_FOR_TIMEDTEXT_URL', query, 7_000);
+export const getTimedtextUrl = (query: TimedtextQuery, signal?: AbortSignal) =>
+  bridgeCall<ObservedTimedtextUrl | null>('GET_TIMEDTEXT_URL', query, 2_000, signal);
+export const waitForTimedtextUrl = (query: TimedtextQuery, signal?: AbortSignal) =>
+  bridgeCall<ObservedTimedtextUrl | null>('WAIT_FOR_TIMEDTEXT_URL', query, 7_000, signal);

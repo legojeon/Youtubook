@@ -1,4 +1,4 @@
-import type { CaptionFetchResult } from '../core/captions';
+import type { CaptionFetchResult, CaptionTrackInfo } from '../core/captions';
 import { DEFAULT_DETECT, detectScenes } from '../core/detect';
 import {
   MAX_VIDEO_DURATION_SEC,
@@ -39,7 +39,11 @@ export interface PrepareCaptionedScanInput {
 }
 
 export interface PrepareCaptionedScanDeps {
-  fetchCaptions: typeof fetchCaptions;
+  fetchCaptions: (
+    tracks: CaptionTrackInfo[],
+    videoId: string,
+    signal: AbortSignal,
+  ) => Promise<CaptionFetchResult>;
   scanVideo: typeof scanVideo;
   detectScenes: typeof detectScenes;
 }
@@ -58,7 +62,7 @@ export async function prepareCaptionedScan(
 
   input.onStage('자막 추출 중…');
   const captions: CaptionFetchResult = input.info
-    ? await deps.fetchCaptions(input.info.captionTracks, videoId)
+    ? await deps.fetchCaptions(input.info.captionTracks, videoId, input.signal)
     : { status: 'fetch-failed', reason: 'no-observed-url', cues: [] };
 
   const sampleIntervalSec = scanIntervalForDuration(input.video.duration);

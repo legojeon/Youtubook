@@ -20,12 +20,16 @@ interface TextResponse {
 type SubtitleButton = Pick<HTMLButtonElement, 'getAttribute' | 'click'>;
 
 export interface CaptionFetchDeps {
-  requestText(url: string): Promise<TextResponse>;
-  getObserved(query: TimedtextQuery): Promise<ObservedTimedtextUrl | null>;
-  waitObserved(query: TimedtextQuery): Promise<ObservedTimedtextUrl | null>;
+  requestText(url: string, signal?: AbortSignal): Promise<TextResponse>;
+  getObserved(query: TimedtextQuery, signal?: AbortSignal): Promise<ObservedTimedtextUrl | null>;
+  waitObserved(query: TimedtextQuery, signal?: AbortSignal): Promise<ObservedTimedtextUrl | null>;
   getSubtitleButton(): SubtitleButton | null;
   now(): number;
-  waitForPressed(button: SubtitleButton, expected: boolean): Promise<boolean>;
+  waitForPressed(
+    button: SubtitleButton,
+    expected: boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean>;
   preferredLanguages: readonly string[];
 }
 
@@ -38,12 +42,21 @@ type Json3FetchResult =
 
 type ObservedFetchResult = Json3FetchResult | { status: 'invalid-url' };
 
-async function fetchJson3(url: string, requestText: CaptionFetchDeps['requestText']):
+function rethrowAbort(error: unknown): void {
+  if (error instanceof Error && error.name === 'AbortError') throw error;
+}
+
+async function fetchJson3(
+  url: string,
+  requestText: CaptionFetchDeps['requestText'],
+  signal?: AbortSignal,
+):
 Promise<Json3FetchResult> {
   let response: TextResponse;
   try {
-    response = await requestText(url);
-  } catch {
+    response = signal ? await requestText(url, signal) : await requestText(url);
+  } catch (error) {
+    rethrowAbort(error);
     return { status: 'non-ok' };
   }
   if (!response.ok) return { status: 'non-ok' };
@@ -103,32 +116,54 @@ async function fetchObservedJson3(
   observed: ObservedTimedtextUrl,
   videoId: string,
   deps: CaptionFetchDeps,
+  signal?: AbortSignal,
 ): Promise<ObservedFetchResult> {
   const url = toJson3TimedtextUrl(observed.url, videoId);
   if (!url) return { status: 'invalid-url' };
-  return fetchJson3(url, deps.requestText);
+  return fetchJson3(url, deps.requestText, signal);
 }
 
 function observedFetchResult(result: ObservedFetchResult): CaptionFetchResult {
   return result.status === 'available' ? result : observedFetchFailure(result);
 }
 
-async function waitForBrowserPressed(
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('사용자가 취소했습니다', 'AbortError'));
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+export async function waitForBrowserPressed(
   button: SubtitleButton,
   expected: boolean,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  signal?.throwIfAborted();
   const expectedValue = String(expected);
   if (button.getAttribute('aria-pressed') === expectedValue) return true;
   for (let elapsed = 25; elapsed <= 500; elapsed += 25) {
-    await new Promise(resolve => setTimeout(resolve, 25));
+    await wait(25, signal);
     if (button.getAttribute('aria-pressed') === expectedValue) return true;
   }
   return false;
 }
 
 const browserDeps: CaptionFetchDeps = {
-  async requestText(url) {
-    const response = await fetch(url);
+  async requestText(url, signal) {
+    const response = await fetch(url, { signal });
     return { ok: response.ok, text: await response.text() };
   },
   getObserved: getTimedtextUrl,
@@ -143,11 +178,14 @@ async function transitionButton(
   button: SubtitleButton,
   expected: boolean,
   deps: CaptionFetchDeps,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   try {
+    signal?.throwIfAborted();
     button.click();
-    return await deps.waitForPressed(button, expected);
-  } catch {
+    return await deps.waitForPressed(button, expected, signal);
+  } catch (error) {
+    rethrowAbort(error);
     return false;
   }
 }
@@ -155,15 +193,20 @@ async function transitionButton(
 export async function fetchCaptions(
   tracks: CaptionTrackInfo[],
   videoId: string,
-  deps: CaptionFetchDeps = browserDeps,
+  signalOrDeps: AbortSignal | CaptionFetchDeps = browserDeps,
+  depsOverride?: CaptionFetchDeps,
 ): Promise<CaptionFetchResult> {
+  const hasSignal = 'aborted' in signalOrDeps;
+  const signal = hasSignal ? signalOrDeps as AbortSignal : undefined;
+  const deps = hasSignal ? depsOverride ?? browserDeps : signalOrDeps as CaptionFetchDeps;
+  signal?.throwIfAborted();
   const track = pickCaptionTrack(tracks, [...deps.preferredLanguages]);
   if (!track) return { status: 'absent', cues: [] };
 
   const directUrl = directJson3Url(track.baseUrl, videoId);
   let hasValidFallbackUrl = directUrl !== null;
   if (directUrl) {
-    const direct = await fetchJson3(directUrl, deps.requestText);
+    const direct = await fetchJson3(directUrl, deps.requestText, signal);
     if (direct.status === 'available') return direct;
     if (direct.status === 'too-many-events') return failed('too-many-events');
   }
@@ -176,13 +219,14 @@ export async function fetchCaptions(
   const lookupStartedAt = deps.now();
   let prior: ObservedTimedtextUrl | null = null;
   try {
-    prior = await deps.getObserved(query);
-  } catch {
+    prior = signal ? await deps.getObserved(query, signal) : await deps.getObserved(query);
+  } catch (error) {
+    rethrowAbort(error);
     // A failed cache lookup does not prevent the player from producing a fresh URL.
   }
   const cutoff = prior?.startTime ?? lookupStartedAt;
   if (prior) {
-    const priorResult = await fetchObservedJson3(prior, videoId, deps);
+    const priorResult = await fetchObservedJson3(prior, videoId, deps, signal);
     if (priorResult.status === 'available') return priorResult;
     if (priorResult.status === 'too-many-events') {
       return observedFetchResult(priorResult);
@@ -200,22 +244,29 @@ export async function fetchCaptions(
   try {
     let transitioned: boolean;
     if (wasOn) {
-      transitioned = await transitionButton(button, false, deps);
-      if (transitioned) transitioned = await transitionButton(button, true, deps);
+      transitioned = await transitionButton(button, false, deps, signal);
+      if (transitioned) transitioned = await transitionButton(button, true, deps, signal);
     } else {
-      transitioned = await transitionButton(button, true, deps);
+      transitioned = await transitionButton(button, true, deps, signal);
     }
 
     if (transitioned) {
       let fresh: ObservedTimedtextUrl | null = null;
       try {
-        fresh = await deps.waitObserved({ ...query, afterStartTime: cutoff });
-      } catch {
+        const freshQuery = { ...query, afterStartTime: cutoff };
+        fresh = signal
+          ? await deps.waitObserved(freshQuery, signal)
+          : await deps.waitObserved(freshQuery);
+      } catch (error) {
+        rethrowAbort(error);
         // A bridge timeout is reported after restoring the original CC state.
       }
-      if (fresh) result = observedFetchResult(await fetchObservedJson3(fresh, videoId, deps));
+      if (fresh) {
+        result = observedFetchResult(await fetchObservedJson3(fresh, videoId, deps, signal));
+      }
     }
-  } catch {
+  } catch (error) {
+    rethrowAbort(error);
     result = failed('player-timeout');
   } finally {
     const isOn = button.getAttribute('aria-pressed') === 'true';

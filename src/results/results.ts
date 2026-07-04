@@ -1,11 +1,10 @@
 import { DEFAULT_DETECT, detectScenes } from '../core/detect';
-import { captionStatusForMeta } from '../core/captions';
 import { formatTimestamp, sanitizeFilename } from '../core/format';
 import { scriptForRange, scriptSpans } from '../core/mapping';
 import { repKey, type SceneRange, type SessionData } from '../core/types';
 import type { Msg, MsgResponse, RepRef } from '../messages';
 import { getSession, updateSession } from '../storage/db';
-import { captionPresentationForStatus } from './caption-presentation';
+import { captionPresentationForMeta } from './caption-presentation';
 import { buildPdf, buildPptx, buildTxt, downloadBlob } from './exporters';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -209,7 +208,7 @@ void (async () => {
       );
     }));
   const txtBtn = $('#dl-txt') as HTMLButtonElement;
-  const captionPresentation = captionPresentationForStatus(captionStatusForMeta(session.meta));
+  const captionPresentation = captionPresentationForMeta(session.meta);
   txtBtn.disabled = !captionPresentation.txtEnabled;
   txtBtn.addEventListener('click', e =>
     void busy(e.currentTarget as HTMLButtonElement, async () => {

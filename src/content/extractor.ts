@@ -1,9 +1,14 @@
 import { frameDiffScore } from '../core/diff';
+import { MAX_SCAN_SAMPLES } from '../core/limits';
 import type { RepRef } from '../messages';
 
 export function buildSampleTimes(durationSec: number, intervalSec: number): number[] {
   const times: number[] = [];
-  for (let t = 0; t < durationSec; t += intervalSec) times.push(t);
+  for (let i = 0; i < MAX_SCAN_SAMPLES; i++) {
+    const t = i * intervalSec;
+    if (t >= durationSec) break;
+    times.push(t);
+  }
   return times.length ? times : [0];
 }
 

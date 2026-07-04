@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CaptionTrackInfo } from '../core/captions';
 import { MAX_CAPTION_EVENTS } from '../core/limits';
 import type { ObservedTimedtextUrl } from '../core/timedtext';
-import { fetchCaptions, type CaptionFetchDeps } from './captions-fetch';
+import {
+  fetchCaptions,
+  type CaptionFetchDeps,
+  waitForBrowserPressed,
+} from './captions-fetch';
 
 const track: CaptionTrackInfo = {
   baseUrl: 'https://www.youtube.com/api/timedtext?v=video-1&lang=en',
@@ -84,6 +88,57 @@ function deps(overrides: Partial<TestDeps> = {}): TestDeps {
 }
 
 describe('fetchCaptions', () => {
+  it('passes cancellation to a direct request and rethrows AbortError', async () => {
+    const controller = new AbortController();
+    const requestText = vi.fn((_url: string, signal?: AbortSignal) =>
+      new Promise<{ ok: boolean; text: string }>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(new DOMException('cancelled', 'AbortError'));
+        }, { once: true });
+      }));
+
+    const result = fetchCaptions(
+      [track],
+      'video-1',
+      controller.signal,
+      deps({ requestText }),
+    );
+    controller.abort();
+
+    await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    expect(requestText).toHaveBeenCalledWith(`${track.baseUrl}&fmt=json3`, controller.signal);
+  });
+
+  it('rethrows bridge-wait cancellation and restores the original CC state', async () => {
+    const controller = new AbortController();
+    const harness = buttonHarness(false);
+    const pressedSignals: Array<AbortSignal | undefined> = [];
+
+    const result = fetchCaptions([track], 'video-1', controller.signal, deps({
+      requestText: vi.fn(async () => ({ ok: true, text: '' })),
+      getObserved: vi.fn(async (_query, signal?: AbortSignal) => {
+        expect(signal).toBe(controller.signal);
+        return null;
+      }),
+      waitObserved: vi.fn(async (_query, signal?: AbortSignal) => {
+        expect(signal).toBe(controller.signal);
+        controller.abort();
+        signal?.throwIfAborted();
+        return null;
+      }),
+      getSubtitleButton: () => harness.button,
+      waitForPressed: vi.fn(async (_button, expected, signal?: AbortSignal) => {
+        pressedSignals.push(signal);
+        return harness.isOn() === expected;
+      }),
+    }));
+
+    await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    expect(harness.clicks).toEqual([true, false]);
+    expect(harness.isOn()).toBe(false);
+    expect(pressedSignals).toEqual([controller.signal, undefined]);
+  });
+
   it('returns absent when there is no caption track', async () => {
     await expect(fetchCaptions([], 'video-1', deps())).resolves.toEqual({
       status: 'absent',
@@ -523,6 +578,27 @@ describe('fetchCaptions', () => {
         configurable: true,
         value: original,
       });
+    }
+  });
+});
+
+describe('waitForBrowserPressed', () => {
+  it('stops CC polling promptly when aborted and clears its timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const button = {
+        getAttribute: () => 'false',
+        click: () => {},
+      };
+      const result = waitForBrowserPressed(button, true, controller.signal);
+
+      controller.abort();
+
+      await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
