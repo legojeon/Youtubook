@@ -6,7 +6,7 @@ import {
   validateThumbChunk,
 } from '../core/thumb-chunks';
 import type { Msg, MsgResponse } from '../messages';
-import { sendSessionStart } from './session-sender';
+import { sendSessionImage, sendSessionStart } from './session-sender';
 
 const begin = {
   type: 'SESSION_BEGIN' as const,
@@ -55,6 +55,7 @@ describe('sendSessionStart', () => {
     );
     expect(chunks.map(chunk => [chunk.startIndex, chunk.thumbs.length]))
       .toEqual([[0, 100], [100, 100], [200, 5]]);
+    expect(chunks.every(chunk => chunk.sessionId === 'session')).toBe(true);
     expect(thumbsComplete(assembled, begin205.scores.length)).toBe(true);
   });
 
@@ -82,5 +83,21 @@ describe('sendSessionStart', () => {
 
     await expect(sendSessionStart(send, begin, ['thumb'])).rejects.toThrow('begin failed');
     expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sendSessionImage', () => {
+  it('throws immediately when an image response fails', async () => {
+    const send = vi.fn(async () => ({ ok: false, reason: 'image rejected' }));
+
+    await expect(sendSessionImage(send, 'session', '0.50', 'data:image/jpeg;base64,AAAA'))
+      .rejects.toThrow('image rejected');
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({
+      type: 'SESSION_IMAGE',
+      sessionId: 'session',
+      key: '0.50',
+      dataUrl: 'data:image/jpeg;base64,AAAA',
+    });
   });
 });

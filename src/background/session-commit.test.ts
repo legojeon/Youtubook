@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionData } from '../core/types';
+import type { PendingSessionData } from '../storage/db';
 import { commitPendingSession, type SessionCommitDeps } from './session-commit';
 
 function makeSession(thumbs = ['thumb-0'], id = 'session-1'): SessionData {
@@ -27,60 +28,91 @@ function makeSession(thumbs = ['thumb-0'], id = 'session-1'): SessionData {
   };
 }
 
+function makePending(thumbs = ['thumb-0'], id = 'session-1'): PendingSessionData {
+  const { images: _images, ...pending } = makeSession(thumbs, id);
+  return { ...pending, updatedAt: 1 };
+}
+
 function deps(overrides: Partial<SessionCommitDeps> = {}): SessionCommitDeps {
+  const pending = makePending();
   return {
+    getPendingSession: async () => pending,
+    getPendingFrames: async () => ({ '0.50': 'data:image/jpeg;base64,AAAA' }),
     saveSession: async () => {},
     pruneSessions: async () => {},
     openResults: async () => {},
+    deletePendingSession: async () => {},
     ...overrides,
   };
 }
 
 describe('commitPendingSession', () => {
-  it('rejects an incomplete session without saving or removing it', async () => {
-    const session = makeSession([]);
-    const pending = new Map([[7, session]]);
+  it('rejects an incomplete persisted session without saving or removing it', async () => {
+    const session = makePending([]);
     let saveCalls = 0;
+    let deleteCalls = 0;
 
-    const result = await commitPendingSession(pending, 7, deps({
+    const result = await commitPendingSession('session-1', deps({
+      getPendingSession: async () => session,
       saveSession: async () => { saveCalls++; },
+      deletePendingSession: async () => { deleteCalls++; },
     }));
 
     expect(result.ok).toBe(false);
     expect(saveCalls).toBe(0);
-    expect(pending.get(7)).toBe(session);
+    expect(deleteCalls).toBe(0);
+  });
+
+  it('rejects a session with a missing expected frame', async () => {
+    const pending = makePending();
+    pending.ranges = [{ startSec: 0, endSec: 1, repSec: 0.5 }];
+    let saveCalls = 0;
+
+    const result = await commitPendingSession('session-1', deps({
+      getPendingSession: async () => pending,
+      getPendingFrames: async () => ({}),
+      saveSession: async () => { saveCalls++; },
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('이미지');
+    expect(saveCalls).toBe(0);
   });
 
   it('retains the pending session when saving fails', async () => {
-    const session = makeSession();
-    const pending = new Map([[7, session]]);
+    let deleteCalls = 0;
 
-    await expect(commitPendingSession(pending, 7, deps({
+    await expect(commitPendingSession('session-1', deps({
       saveSession: async () => { throw new Error('save failed'); },
+      deletePendingSession: async () => { deleteCalls++; },
     }))).rejects.toThrow('save failed');
 
-    expect(pending.get(7)).toBe(session);
+    expect(deleteCalls).toBe(0);
   });
 
   it('retains the pending session when opening the results tab fails', async () => {
-    const session = makeSession();
-    const pending = new Map([[7, session]]);
+    let deleteCalls = 0;
 
-    await expect(commitPendingSession(pending, 7, deps({
+    await expect(commitPendingSession('session-1', deps({
       openResults: async () => { throw new Error('open failed'); },
+      deletePendingSession: async () => { deleteCalls++; },
     }))).rejects.toThrow('open failed');
 
-    expect(pending.get(7)).toBe(session);
+    expect(deleteCalls).toBe(0);
   });
 
-  it('removes the session only after saving, pruning, and opening results', async () => {
-    const session = makeSession();
-    const pending = new Map([[7, session]]);
+  it('reconstructs after a worker restart and deletes pending data only after save, prune, and open', async () => {
+    const session = makePending();
     const calls: string[] = [];
 
-    const result = await commitPendingSession(pending, 7, deps({
+    const result = await commitPendingSession('session-1', deps({
+      getPendingSession: async () => session,
+      getPendingFrames: async () => ({ '0.50': 'data:image/jpeg;base64,AAAA' }),
       saveSession: async saved => {
-        expect(saved).toBe(session);
+        expect(saved).toEqual({
+          ...makeSession(),
+          images: { '0.50': 'data:image/jpeg;base64,AAAA' },
+        });
         calls.push('save');
       },
       pruneSessions: async keep => {
@@ -89,37 +121,39 @@ describe('commitPendingSession', () => {
       },
       openResults: async sessionId => {
         expect(sessionId).toBe('session-1');
-        expect(pending.has(7)).toBe(true);
         calls.push('open');
+      },
+      deletePendingSession: async sessionId => {
+        expect(sessionId).toBe('session-1');
+        calls.push('delete');
       },
     }));
 
     expect(result).toEqual({ ok: true });
-    expect(calls).toEqual(['save', 'prune', 'open']);
-    expect(pending.has(7)).toBe(false);
+    expect(calls).toEqual(['save', 'prune', 'open', 'delete']);
   });
 
   it('rejects a concurrent commit without duplicating save or open', async () => {
-    const session = makeSession();
-    const pending = new Map([[7, session]]);
     let releaseSave!: () => void;
     const saveGate = new Promise<void>(resolve => { releaseSave = resolve; });
+    let signalSaveEntered!: () => void;
+    const saveEntered = new Promise<void>(resolve => { signalSaveEntered = resolve; });
     let saveCalls = 0;
     let openCalls = 0;
     const sharedDeps = deps({
       saveSession: async () => {
         saveCalls++;
+        signalSaveEntered();
         await saveGate;
       },
       openResults: async () => { openCalls++; },
     });
 
-    const first = commitPendingSession(pending, 7, sharedDeps);
-    const secondPromise = commitPendingSession(pending, 7, sharedDeps);
+    const first = commitPendingSession('session-1', sharedDeps);
+    await saveEntered;
+    const secondPromise = commitPendingSession('session-1', sharedDeps);
     let secondWhileFirstPending: Awaited<ReturnType<typeof commitPendingSession>> | undefined;
     void secondPromise.then(result => { secondWhileFirstPending = result; });
-    await Promise.resolve();
-
     expect(saveCalls).toBe(1);
     expect(openCalls).toBe(0);
     releaseSave();
@@ -130,27 +164,4 @@ describe('commitPendingSession', () => {
     expect(openCalls).toBe(1);
   });
 
-  it('does not delete a replacement session installed while saving', async () => {
-    const original = makeSession();
-    const replacement = makeSession(['replacement'], 'session-2');
-    const pending = new Map([[7, original]]);
-
-    await commitPendingSession(pending, 7, deps({
-      saveSession: async () => { pending.set(7, replacement); },
-    }));
-
-    expect(pending.get(7)).toBe(replacement);
-  });
-
-  it('does not delete a replacement session installed while opening results', async () => {
-    const original = makeSession();
-    const replacement = makeSession(['replacement'], 'session-2');
-    const pending = new Map([[7, original]]);
-
-    await commitPendingSession(pending, 7, deps({
-      openResults: async () => { pending.set(7, replacement); },
-    }));
-
-    expect(pending.get(7)).toBe(replacement);
-  });
 });

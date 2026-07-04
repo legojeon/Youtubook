@@ -11,7 +11,7 @@ import {
   scanMetaFields,
 } from './extraction-orchestration';
 import { createOverlay } from './overlay';
-import { sendSessionStart } from './session-sender';
+import { sendSessionImage, sendSessionStart } from './session-sender';
 
 let running = false;
 
@@ -110,10 +110,10 @@ async function runExtraction(): Promise<void> {
         video,
         det.ranges.map(r => ({ key: repKey(r.repSec), repSec: r.repSec })),
         (d, t) => overlay.setProgress(d, t),
-        async (key, dataUrl) => { await send({ type: 'SESSION_IMAGE', key, dataUrl }); },
+        async (key, dataUrl) => { await sendSessionImage(send, meta.id, key, dataUrl); },
         ac.signal,
       );
-      result = await send({ type: 'SESSION_COMMIT' });
+      result = await send({ type: 'SESSION_COMMIT', sessionId: meta.id });
     } finally {
       await restorePlayerState(video, state);
     }

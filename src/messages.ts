@@ -10,9 +10,9 @@ export type Msg =
   | { type: 'START_EXTRACTION' }
   // 콘텐츠 → SW: 세션 전송 (청크)
   | { type: 'SESSION_BEGIN'; meta: SessionMeta; scores: number[]; cues: Cue[]; ranges: SceneRange[] }
-  | { type: 'SESSION_THUMBS_CHUNK'; startIndex: number; thumbs: string[] }
-  | { type: 'SESSION_IMAGE'; key: string; dataUrl: string }
-  | { type: 'SESSION_COMMIT' } // SW가 저장 + 결과 탭 오픈 + 세션 정리
+  | { type: 'SESSION_THUMBS_CHUNK'; sessionId: string; startIndex: number; thumbs: string[] }
+  | { type: 'SESSION_IMAGE'; sessionId: string; key: string; dataUrl: string }
+  | { type: 'SESSION_COMMIT'; sessionId: string } // SW가 저장 + 결과 탭 오픈 + 세션 정리
   // 결과 페이지 → SW → 콘텐츠: 재캡처
   | { type: 'REQUEST_CAPTURES'; sessionId: string; reps: RepRef[] }
   | { type: 'CAPTURE_FRAMES'; sessionId: string; videoId: string; reps: RepRef[] }

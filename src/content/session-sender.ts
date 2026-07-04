@@ -17,7 +17,21 @@ export async function sendSessionStart(
   checkResponse(await send(begin), '세션 시작에 실패했습니다.');
 
   for (const chunk of splitThumbs(thumbs, THUMB_CHUNK_SIZE)) {
-    const response = await send({ type: 'SESSION_THUMBS_CHUNK', ...chunk });
+    const response = await send({
+      type: 'SESSION_THUMBS_CHUNK',
+      sessionId: begin.meta.id,
+      ...chunk,
+    });
     checkResponse(response, '썸네일 전송에 실패했습니다.');
   }
+}
+
+export async function sendSessionImage(
+  send: SendMessage,
+  sessionId: string,
+  key: string,
+  dataUrl: string,
+): Promise<void> {
+  const response = await send({ type: 'SESSION_IMAGE', sessionId, key, dataUrl });
+  checkResponse(response, '장면 이미지 전송에 실패했습니다.');
 }
