@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_PENDING_TIMEDTEXT_WAITERS } from '../core/limits';
 import { TimedtextUrlCache } from '../core/timedtext';
 import { TimedtextWaiterMap } from './timedtext-waiters';
 
@@ -70,5 +71,20 @@ describe('TimedtextWaiterMap', () => {
     expect(secondReply).toHaveBeenCalledOnce();
     expect(secondReply).toHaveBeenCalledWith(null);
     expect(waiters.size).toBe(0);
+  });
+
+  it('rejects new waiters immediately when the pending cap is reached', () => {
+    const cache = new TimedtextUrlCache(8);
+    const waiters = new TimedtextWaiterMap(cache);
+    const overflowReply = vi.fn();
+
+    for (let i = 0; i < MAX_PENDING_TIMEDTEXT_WAITERS; i++) {
+      waiters.wait({ videoId: `video-${i}` }, vi.fn());
+    }
+    waiters.wait({ videoId: 'overflow-video' }, overflowReply);
+
+    expect(overflowReply).toHaveBeenCalledOnce();
+    expect(overflowReply).toHaveBeenCalledWith(null);
+    expect(waiters.size).toBe(MAX_PENDING_TIMEDTEXT_WAITERS);
   });
 });

@@ -1,5 +1,6 @@
 import type { ObservedTimedtextUrl, TimedtextQuery } from '../core/timedtext';
 import { TimedtextUrlCache } from '../core/timedtext';
+import { MAX_PENDING_TIMEDTEXT_WAITERS } from '../core/limits';
 
 const WAIT_TIMEOUT_MS = 6_000;
 
@@ -15,7 +16,10 @@ export class TimedtextWaiterMap {
   private nextId = 0;
   private readonly pending = new Map<number, PendingWaiter>();
 
-  constructor(private readonly cache: TimedtextUrlCache) {}
+  constructor(
+    private readonly cache: TimedtextUrlCache,
+    private readonly maxPending = MAX_PENDING_TIMEDTEXT_WAITERS,
+  ) {}
 
   get size(): number {
     return this.pending.size;
@@ -25,6 +29,10 @@ export class TimedtextWaiterMap {
     const cached = this.cache.find(query);
     if (cached) {
       reply(cached);
+      return;
+    }
+    if (this.pending.size >= this.maxPending) {
+      reply(null);
       return;
     }
 

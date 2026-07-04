@@ -72,6 +72,7 @@ describe('bridge client', () => {
     await setMaxQuality();
     await getPlayerInfo();
 
-    expect(posted.map(message => message.payload)).toEqual([undefined, undefined]);
+    expect(posted).toHaveLength(2);
+    expect(posted.every(message => !Object.hasOwn(message, 'payload'))).toBe(true);
   });
 });

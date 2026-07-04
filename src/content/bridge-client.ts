@@ -32,7 +32,12 @@ function bridgeCall<T>(cmd: string, payload?: unknown, timeoutMs = 2000): Promis
       window.removeEventListener('message', onMsg);
     };
     window.addEventListener('message', onMsg);
-    window.postMessage({ source: 'youtubook-cs', cmd, reqId, payload }, '*');
+    window.postMessage({
+      source: 'youtubook-cs',
+      cmd,
+      reqId,
+      ...(payload === undefined ? {} : { payload }),
+    }, '*');
   });
 }
 

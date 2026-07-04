@@ -1,7 +1,12 @@
 // MAIN 월드에서 실행 — 유튜브 플레이어 내부 API 접근 담당.
 // 콘텐츠 스크립트와는 window.postMessage로만 통신한다.
-import { MAX_TIMEDTEXT_URLS_PER_VIDEO } from '../core/limits';
-import { TimedtextUrlCache, type TimedtextQuery } from '../core/timedtext';
+import {
+  MAX_PENDING_TIMEDTEXT_WAITERS,
+  MAX_TIMEDTEXT_URLS_PER_VIDEO,
+  MAX_TIMEDTEXT_URLS_TOTAL,
+} from '../core/limits';
+import { TimedtextUrlCache } from '../core/timedtext';
+import { parseBridgeRequest, parseTimedtextQuery } from './bridge-request';
 import { observeResourceUrls } from './timedtext-observer';
 import { TimedtextWaiterMap } from './timedtext-waiters';
 
@@ -18,15 +23,25 @@ interface RawTrack {
   name?: { simpleText?: string; runs?: { text?: string }[] };
 }
 
-const timedtextUrls = new TimedtextUrlCache(MAX_TIMEDTEXT_URLS_PER_VIDEO);
-const pendingTimedtextWaiters = new TimedtextWaiterMap(timedtextUrls);
+const timedtextUrls = new TimedtextUrlCache(
+  MAX_TIMEDTEXT_URLS_PER_VIDEO,
+  MAX_TIMEDTEXT_URLS_TOTAL,
+);
+const pendingTimedtextWaiters = new TimedtextWaiterMap(
+  timedtextUrls,
+  MAX_PENDING_TIMEDTEXT_WAITERS,
+);
 
 if (typeof PerformanceObserver !== 'undefined') {
-  observeResourceUrls((name, startTime) => {
-    if (timedtextUrls.add(name, startTime)) {
-      pendingTimedtextWaiters.resolveMatches();
-    }
-  });
+  try {
+    observeResourceUrls((name, startTime) => {
+      if (timedtextUrls.add(name, startTime)) {
+        pendingTimedtextWaiters.resolveMatches();
+      }
+    });
+  } catch {
+    // Resource observation is optional; keep the existing player bridge available.
+  }
 }
 
 document.addEventListener('yt-navigate-start', () => {
@@ -35,21 +50,17 @@ document.addEventListener('yt-navigate-start', () => {
 });
 
 window.addEventListener('message', (ev: MessageEvent) => {
-  const d = ev.data as {
-    source?: string;
-    cmd?: string;
-    reqId?: string;
-    payload?: unknown;
-  } | null;
-  if (ev.source !== window || !d || d.source !== 'youtubook-cs' || !d.reqId) return;
+  if (ev.source !== window) return;
+  const d = parseBridgeRequest(ev.data);
+  if (!d) return;
 
   const reply = (payload: unknown) =>
     window.postMessage({ source: 'youtubook-bridge', reqId: d.reqId, payload }, '*');
   const player = document.getElementById('movie_player') as YtPlayerEl | null;
 
   if (d.cmd === 'GET_TIMEDTEXT_URL' || d.cmd === 'WAIT_FOR_TIMEDTEXT_URL') {
-    const query = d.payload as TimedtextQuery | undefined;
-    if (!query || typeof query.videoId !== 'string') {
+    const query = parseTimedtextQuery(d.payload);
+    if (!query) {
       reply(null);
     } else if (d.cmd === 'GET_TIMEDTEXT_URL') {
       reply(timedtextUrls.find(query));

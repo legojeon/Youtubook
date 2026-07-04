@@ -48,7 +48,10 @@ function parseTimedtextUrl(raw: string, startTime: number): ObservedTimedtextUrl
 export class TimedtextUrlCache {
   private entries: ObservedTimedtextUrl[] = [];
 
-  constructor(private readonly maxPerVideo: number) {}
+  constructor(
+    private readonly maxPerVideo: number,
+    private readonly maxTotal = Number.POSITIVE_INFINITY,
+  ) {}
 
   get size(): number {
     return this.entries.length;
@@ -75,6 +78,9 @@ export class TimedtextUrlCache {
       const removed = new Set(entriesForVideo.slice(0, excess));
       this.entries = this.entries.filter(entry => !removed.has(entry));
     }
+
+    const totalExcess = this.entries.length - this.maxTotal;
+    if (totalExcess > 0) this.entries.splice(0, totalExcess);
 
     return true;
   }

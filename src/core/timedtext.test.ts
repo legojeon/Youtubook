@@ -127,6 +127,21 @@ describe('TimedtextUrlCache', () => {
       .toBe('new');
     expect(cache.find({ videoId: 'v2' })?.languageCode).toBe('isolated');
   });
+
+  it('evicts globally oldest entries when many distinct videos are observed', () => {
+    const cache = new TimedtextUrlCache(8, 4);
+    for (let i = 0; i < 10; i++) {
+      cache.add(url(`v${i}`, 'en', 'asr', `p${i}`), 1);
+    }
+
+    expect(cache.size).toBe(4);
+    for (let i = 0; i < 6; i++) {
+      expect(cache.find({ videoId: `v${i}` }), `v${i}`).toBeNull();
+    }
+    for (let i = 6; i < 10; i++) {
+      expect(cache.find({ videoId: `v${i}` })?.videoId).toBe(`v${i}`);
+    }
+  });
 });
 
 describe('toJson3TimedtextUrl', () => {
