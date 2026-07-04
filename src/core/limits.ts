@@ -6,6 +6,19 @@ export const MAX_TIMEDTEXT_URLS_TOTAL = 64;
 export const MAX_PENDING_TIMEDTEXT_WAITERS = 32;
 export const THUMB_CHUNK_SIZE = 100;
 
+export function validateScanScores(scores: unknown): asserts scores is number[] {
+  if (!Array.isArray(scores)
+    || scores.length < 1
+    || scores.length > MAX_SCAN_SAMPLES) {
+    throw new Error(`Scan scores must contain between 1 and ${MAX_SCAN_SAMPLES} entries.`);
+  }
+  for (const score of scores) {
+    if (typeof score !== 'number' || !Number.isFinite(score)) {
+      throw new Error('Scan scores must contain only finite numbers.');
+    }
+  }
+}
+
 export function validateVideoDuration(durationSec: number): boolean {
   return (
     Number.isFinite(durationSec) &&

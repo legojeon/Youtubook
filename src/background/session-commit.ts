@@ -8,6 +8,8 @@ export interface SessionCommitDeps {
   openResults: (sessionId: string) => Promise<void>;
 }
 
+const committing = new WeakSet<SessionData>();
+
 export async function commitPendingSession(
   pending: Map<number, SessionData>,
   tabId: number,
@@ -18,10 +20,18 @@ export async function commitPendingSession(
   if (!thumbsComplete(session.thumbs, session.scores.length)) {
     return { ok: false, reason: '썸네일 전송이 완료되지 않았습니다.' };
   }
+  if (committing.has(session)) {
+    return { ok: false, reason: '세션 저장이 이미 진행 중입니다.' };
+  }
 
-  await deps.saveSession(session);
-  await deps.pruneSessions(5);
-  await deps.openResults(session.meta.id);
-  pending.delete(tabId);
-  return { ok: true };
+  committing.add(session);
+  try {
+    await deps.saveSession(session);
+    await deps.pruneSessions(5);
+    await deps.openResults(session.meta.id);
+    if (pending.get(tabId) === session) pending.delete(tabId);
+    return { ok: true };
+  } finally {
+    committing.delete(session);
+  }
 }

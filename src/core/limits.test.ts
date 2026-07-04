@@ -3,6 +3,7 @@ import {
   MAX_SCAN_SAMPLES,
   MAX_VIDEO_DURATION_SEC,
   scanIntervalForDuration,
+  validateScanScores,
   validateVideoDuration,
 } from './limits';
 
@@ -31,6 +32,26 @@ describe('validateVideoDuration', () => {
     'rejects a non-positive or non-finite duration (%s)',
     (durationSec) => {
       expect(validateVideoDuration(durationSec)).toBe(false);
+    },
+  );
+});
+
+describe('validateScanScores', () => {
+  it('accepts finite numeric score arrays at the length boundaries', () => {
+    expect(() => validateScanScores([0])).not.toThrow();
+    expect(() => validateScanScores(Array(MAX_SCAN_SAMPLES).fill(0))).not.toThrow();
+  });
+
+  it('rejects non-arrays and lengths outside the scan limit', () => {
+    expect(() => validateScanScores('not-an-array')).toThrow();
+    expect(() => validateScanScores([])).toThrow();
+    expect(() => validateScanScores(Array(MAX_SCAN_SAMPLES + 1).fill(0))).toThrow();
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, '1', null])(
+    'rejects an invalid score value (%s)',
+    score => {
+      expect(() => validateScanScores([score])).toThrow();
     },
   );
 });

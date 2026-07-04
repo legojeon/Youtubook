@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { SessionData } from '../core/types';
 import { commitPendingSession, type SessionCommitDeps } from './session-commit';
 
-function makeSession(thumbs = ['thumb-0']): SessionData {
+function makeSession(thumbs = ['thumb-0'], id = 'session-1'): SessionData {
   return {
     meta: {
-      id: 'session-1',
+      id,
       videoId: 'video-1',
       title: 'Video',
       videoUrl: 'https://www.youtube.com/watch?v=video-1',
@@ -97,5 +97,60 @@ describe('commitPendingSession', () => {
     expect(result).toEqual({ ok: true });
     expect(calls).toEqual(['save', 'prune', 'open']);
     expect(pending.has(7)).toBe(false);
+  });
+
+  it('rejects a concurrent commit without duplicating save or open', async () => {
+    const session = makeSession();
+    const pending = new Map([[7, session]]);
+    let releaseSave!: () => void;
+    const saveGate = new Promise<void>(resolve => { releaseSave = resolve; });
+    let saveCalls = 0;
+    let openCalls = 0;
+    const sharedDeps = deps({
+      saveSession: async () => {
+        saveCalls++;
+        await saveGate;
+      },
+      openResults: async () => { openCalls++; },
+    });
+
+    const first = commitPendingSession(pending, 7, sharedDeps);
+    const secondPromise = commitPendingSession(pending, 7, sharedDeps);
+    let secondWhileFirstPending: Awaited<ReturnType<typeof commitPendingSession>> | undefined;
+    void secondPromise.then(result => { secondWhileFirstPending = result; });
+    await Promise.resolve();
+
+    expect(saveCalls).toBe(1);
+    expect(openCalls).toBe(0);
+    releaseSave();
+    await expect(first).resolves.toEqual({ ok: true });
+    await secondPromise;
+    expect(secondWhileFirstPending?.ok).toBe(false);
+    expect(secondWhileFirstPending?.reason).toContain('진행 중');
+    expect(openCalls).toBe(1);
+  });
+
+  it('does not delete a replacement session installed while saving', async () => {
+    const original = makeSession();
+    const replacement = makeSession(['replacement'], 'session-2');
+    const pending = new Map([[7, original]]);
+
+    await commitPendingSession(pending, 7, deps({
+      saveSession: async () => { pending.set(7, replacement); },
+    }));
+
+    expect(pending.get(7)).toBe(replacement);
+  });
+
+  it('does not delete a replacement session installed while opening results', async () => {
+    const original = makeSession();
+    const replacement = makeSession(['replacement'], 'session-2');
+    const pending = new Map([[7, original]]);
+
+    await commitPendingSession(pending, 7, deps({
+      openResults: async () => { pending.set(7, replacement); },
+    }));
+
+    expect(pending.get(7)).toBe(replacement);
   });
 });

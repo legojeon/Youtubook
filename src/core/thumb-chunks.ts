@@ -1,12 +1,16 @@
+import { THUMB_CHUNK_SIZE } from './limits';
+
 export interface ThumbChunk {
   startIndex: number;
   thumbs: string[];
 }
 
-export const THUMB_CHUNK_SIZE = 100;
 // 160px-wide JPEG data URLs are normally far smaller; 256 KiB leaves ample
 // headroom for unusual aspect ratios while bounding untrusted message payloads.
 export const MAX_THUMB_DATA_URL_LENGTH = 256 * 1024;
+// Generated JPEG data URLs are ASCII, so characters equal UTF-8 bytes. 128 MiB
+// supports 3,600 thumbnails averaging more than 32 KiB while bounding a session.
+export const MAX_SESSION_THUMB_CHARS = 128 * 1024 * 1024;
 
 export function validateThumbChunk(
   startIndex: unknown,
@@ -53,6 +57,7 @@ export function applyThumbChunk(
   target: string[],
   startIndex: number,
   thumbs: string[],
+  maxTotalChars = MAX_SESSION_THUMB_CHARS,
 ): void {
   if (!Number.isSafeInteger(startIndex) || startIndex < 0) {
     throw new Error('Thumbnail chunk start index must be a non-negative safe integer.');
@@ -60,12 +65,24 @@ export function applyThumbChunk(
   if (!Array.isArray(thumbs)) {
     throw new Error('Thumbnail chunk must be an array.');
   }
+  if (!Number.isSafeInteger(maxTotalChars) || maxTotalChars < 0) {
+    throw new Error('Thumbnail session budget must be a non-negative safe integer.');
+  }
 
+  let totalChars = 0;
+  for (let index = 0; index < target.length; index++) {
+    if (Object.hasOwn(target, index)) totalChars += target[index].length;
+  }
+  let addedChars = 0;
   for (let offset = 0; offset < thumbs.length; offset++) {
     const index = startIndex + offset;
     if (Object.hasOwn(target, index) && target[index] !== thumbs[offset]) {
       throw new Error('Conflicting thumbnail chunks must not overlap.');
     }
+    if (!Object.hasOwn(target, index)) addedChars += thumbs[offset].length;
+  }
+  if (totalChars > maxTotalChars - addedChars) {
+    throw new Error('Thumbnail session exceeds the aggregate size limit.');
   }
   for (let offset = 0; offset < thumbs.length; offset++) {
     target[startIndex + offset] = thumbs[offset];

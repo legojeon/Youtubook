@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyThumbChunk,
+  MAX_SESSION_THUMB_CHARS,
   MAX_THUMB_DATA_URL_LENGTH,
   splitThumbs,
-  THUMB_CHUNK_SIZE,
   thumbsComplete,
   validateThumbChunk,
 } from './thumb-chunks';
+import { MAX_SCAN_SAMPLES, THUMB_CHUNK_SIZE } from './limits';
 
 describe('splitThumbs', () => {
   it('splits 205 thumbnails into chunks of at most 100', () => {
@@ -58,18 +59,35 @@ describe('applyThumbChunk', () => {
   it('accepts an exact duplicate retransmission', () => {
     const target = ['thumb-0', 'thumb-1'];
 
-    expect(() => applyThumbChunk(target, 0, ['thumb-0', 'thumb-1'])).not.toThrow();
+    const exactBudget = target.reduce((total, thumb) => total + thumb.length, 0);
+    expect(() => applyThumbChunk(target, 0, ['thumb-0', 'thumb-1'], exactBudget))
+      .not.toThrow();
     expect(target).toEqual(['thumb-0', 'thumb-1']);
   });
 
-  it('rejects a conflicting overlap atomically', () => {
-    const target = ['thumb-0'];
+  it('rejects a later conflicting overlap without filling earlier holes', () => {
+    const target: string[] = [];
+    target[3] = 'existing';
 
-    expect(() => applyThumbChunk(target, 1, ['thumb-1', 'conflict'])).not.toThrow();
-    const before = [...target];
-    expect(() => applyThumbChunk(target, 0, ['thumb-0', 'replacement', 'thumb-2']))
+    expect(() => applyThumbChunk(target, 1, ['new-1', 'new-2', 'conflict']))
       .toThrow();
+    expect(Object.hasOwn(target, 1)).toBe(false);
+    expect(Object.hasOwn(target, 2)).toBe(false);
+    expect(target[3]).toBe('existing');
+  });
+
+  it('accepts the aggregate budget boundary and rejects excess without mutation', () => {
+    const target = ['abc'];
+
+    applyThumbChunk(target, 1, ['de'], 5);
+    const before = [...target];
+    expect(() => applyThumbChunk(target, 2, ['f'], 5)).toThrow();
     expect(target).toEqual(before);
+  });
+
+  it('budgets at least 32 KiB for each maximum-length scan thumbnail', () => {
+    expect(MAX_SESSION_THUMB_CHARS)
+      .toBeGreaterThanOrEqual(MAX_SCAN_SAMPLES * 32 * 1024);
   });
 
   it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(

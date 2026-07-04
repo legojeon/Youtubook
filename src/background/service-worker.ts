@@ -1,5 +1,6 @@
 import type { SessionData } from '../core/types';
 import { applyThumbChunk, validateThumbChunk } from '../core/thumb-chunks';
+import { validateScanScores } from '../core/limits';
 import type { Msg, MsgResponse } from '../messages';
 import { getSession, pruneSessions, saveSession, updateSession } from '../storage/db';
 import { commitPendingSession } from './session-commit';
@@ -26,6 +27,7 @@ async function handle(msg: Msg, sender: chrome.runtime.MessageSender): Promise<M
   const tabId = sender.tab?.id ?? -1;
   switch (msg.type) {
     case 'SESSION_BEGIN':
+      validateScanScores(msg.scores);
       pending.set(tabId, {
         meta: { ...msg.meta, tabId },
         scores: msg.scores,
