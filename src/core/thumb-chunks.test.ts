@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { applyThumbChunk, splitThumbs, thumbsComplete } from './thumb-chunks';
+import {
+  applyThumbChunk,
+  MAX_THUMB_DATA_URL_LENGTH,
+  splitThumbs,
+  THUMB_CHUNK_SIZE,
+  thumbsComplete,
+  validateThumbChunk,
+} from './thumb-chunks';
 
 describe('splitThumbs', () => {
   it('splits 205 thumbnails into chunks of at most 100', () => {
@@ -38,11 +45,31 @@ describe('applyThumbChunk', () => {
     expect(thumbsComplete(target, 2)).toBe(false);
   });
 
-  it('rejects overlapping chunks', () => {
+  it('accepts reordered non-overlapping chunks', () => {
     const target: string[] = [];
+
+    applyThumbChunk(target, 2, ['thumb-2', 'thumb-3']);
     applyThumbChunk(target, 0, ['thumb-0', 'thumb-1']);
 
-    expect(() => applyThumbChunk(target, 1, ['replacement'])).toThrow();
+    expect(target).toEqual(['thumb-0', 'thumb-1', 'thumb-2', 'thumb-3']);
+    expect(thumbsComplete(target, 4)).toBe(true);
+  });
+
+  it('accepts an exact duplicate retransmission', () => {
+    const target = ['thumb-0', 'thumb-1'];
+
+    expect(() => applyThumbChunk(target, 0, ['thumb-0', 'thumb-1'])).not.toThrow();
+    expect(target).toEqual(['thumb-0', 'thumb-1']);
+  });
+
+  it('rejects a conflicting overlap atomically', () => {
+    const target = ['thumb-0'];
+
+    expect(() => applyThumbChunk(target, 1, ['thumb-1', 'conflict'])).not.toThrow();
+    const before = [...target];
+    expect(() => applyThumbChunk(target, 0, ['thumb-0', 'replacement', 'thumb-2']))
+      .toThrow();
+    expect(target).toEqual(before);
   });
 
   it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
@@ -51,6 +78,35 @@ describe('applyThumbChunk', () => {
       expect(() => applyThumbChunk([], startIndex, ['thumb'])).toThrow();
     },
   );
+});
+
+describe('validateThumbChunk', () => {
+  const thumbs = (length: number) => Array.from({ length }, (_, i) => `thumb-${i}`);
+
+  it('accepts 100 thumbnails and rejects 101', () => {
+    expect(() => validateThumbChunk(0, thumbs(THUMB_CHUNK_SIZE), 200)).not.toThrow();
+    expect(() => validateThumbChunk(0, thumbs(THUMB_CHUNK_SIZE + 1), 200)).toThrow();
+  });
+
+  it('rejects a non-array payload and an empty chunk', () => {
+    expect(() => validateThumbChunk(0, 'not-an-array', 1)).toThrow();
+    expect(() => validateThumbChunk(0, [], 1)).toThrow();
+  });
+
+  it('rejects an unsafe start index', () => {
+    expect(() => validateThumbChunk(Number.MAX_SAFE_INTEGER + 1, ['thumb'], 1)).toThrow();
+  });
+
+  it('rejects a chunk outside the expected score range', () => {
+    expect(() => validateThumbChunk(2, ['thumb-2', 'thumb-3'], 3)).toThrow();
+  });
+
+  it('rejects empty, non-string, and oversized thumbnails', () => {
+    expect(() => validateThumbChunk(0, [''], 1)).toThrow();
+    expect(() => validateThumbChunk(0, [123], 1)).toThrow();
+    expect(() => validateThumbChunk(0, ['x'.repeat(MAX_THUMB_DATA_URL_LENGTH + 1)], 1))
+      .toThrow();
+  });
 });
 
 describe('thumbsComplete', () => {

@@ -1,7 +1,8 @@
 import type { SessionData } from '../core/types';
-import { applyThumbChunk, thumbsComplete } from '../core/thumb-chunks';
+import { applyThumbChunk, validateThumbChunk } from '../core/thumb-chunks';
 import type { Msg, MsgResponse } from '../messages';
 import { getSession, pruneSessions, saveSession, updateSession } from '../storage/db';
+import { commitPendingSession } from './session-commit';
 
 // 탭별 조립 중 세션 (전송 중에는 메시지가 SW를 깨어있게 유지한다)
 const pending = new Map<number, SessionData>();
@@ -38,6 +39,7 @@ async function handle(msg: Msg, sender: chrome.runtime.MessageSender): Promise<M
     case 'SESSION_THUMBS_CHUNK': {
       const s = pending.get(tabId);
       if (!s) return { ok: false, reason: '조립 중인 세션이 없습니다.' };
+      validateThumbChunk(msg.startIndex, msg.thumbs, s.scores.length);
       applyThumbChunk(s.thumbs, msg.startIndex, msg.thumbs);
       return { ok: true };
     }
@@ -49,20 +51,16 @@ async function handle(msg: Msg, sender: chrome.runtime.MessageSender): Promise<M
       return { ok: true };
     }
 
-    case 'SESSION_COMMIT': {
-      const s = pending.get(tabId);
-      if (!s) return { ok: false, reason: '조립 중인 세션이 없습니다.' };
-      if (!thumbsComplete(s.thumbs, s.scores.length)) {
-        return { ok: false, reason: '썸네일 전송이 완료되지 않았습니다.' };
-      }
-      pending.delete(tabId);
-      await saveSession(s);
-      await pruneSessions(5);
-      await chrome.tabs.create({
-        url: chrome.runtime.getURL(`src/results/results.html?session=${s.meta.id}`),
+    case 'SESSION_COMMIT':
+      return commitPendingSession(pending, tabId, {
+        saveSession,
+        pruneSessions,
+        openResults: async sessionId => {
+          await chrome.tabs.create({
+            url: chrome.runtime.getURL(`src/results/results.html?session=${sessionId}`),
+          });
+        },
       });
-      return { ok: true };
-    }
 
     case 'REQUEST_CAPTURES': {
       const session = await getSession(msg.sessionId);
