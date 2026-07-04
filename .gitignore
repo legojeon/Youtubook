@@ -1,2 +1,6 @@
 node_modules/
 dist/
+.superpowers/
+docs/superpowers/
+*.zip
+.DS_Store

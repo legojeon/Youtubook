@@ -5,7 +5,20 @@ export default defineManifest({
   name: 'Youtubook',
   version: '0.1.0',
   description: '유튜브 영상을 그림책(PDF/PPTX)과 대본(TXT)으로 변환합니다.',
-  action: { default_popup: 'src/popup/popup.html' },
+  icons: {
+    16: 'icons/icon16.png',
+    32: 'icons/icon32.png',
+    48: 'icons/icon48.png',
+    128: 'icons/icon128.png',
+  },
+  action: {
+    default_popup: 'src/popup/popup.html',
+    default_icon: {
+      16: 'icons/icon16.png',
+      32: 'icons/icon32.png',
+      48: 'icons/icon48.png',
+    },
+  },
   background: { service_worker: 'src/background/service-worker.ts', type: 'module' },
   content_scripts: [
     {
