@@ -1,3 +1,5 @@
+import type { CaptionStatus } from './captions';
+
 export interface SceneRange {
   startSec: number;
   endSec: number;
@@ -22,6 +24,7 @@ export interface SessionMeta {
   sampleIntervalSec: number;
   sensitivity: number; // 1~10
   captionsAvailable: boolean;
+  captionStatus?: CaptionStatus;
   truncated: boolean; // 장면 300개 상한 초과 여부
   createdAt: number;
 }

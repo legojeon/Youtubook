@@ -68,11 +68,14 @@ async function runExtraction(): Promise<void> {
       const det = detectScenes(scan.scores, { ...DEFAULT_DETECT, durationSec: video.duration });
 
       overlay.setStage('자막 추출 중…');
-      const cues = info ? await fetchCaptions(info.captionTracks) : null;
+      const videoId = info?.videoId ?? new URLSearchParams(location.search).get('v') ?? 'unknown';
+      const captions = info
+        ? await fetchCaptions(info.captionTracks, videoId)
+        : { status: 'fetch-failed' as const, reason: 'no-observed-url' as const, cues: [] };
 
       const meta: SessionMeta = {
         id: crypto.randomUUID(),
-        videoId: info?.videoId ?? new URLSearchParams(location.search).get('v') ?? 'unknown',
+        videoId,
         title: info?.title ?? document.title.replace(/ - YouTube$/, ''),
         videoUrl: location.href,
         tabId: -1, // SW가 sender.tab.id로 채움
@@ -81,11 +84,18 @@ async function runExtraction(): Promise<void> {
         videoHeight: video.videoHeight,
         sampleIntervalSec: DEFAULT_DETECT.sampleIntervalSec,
         sensitivity: DEFAULT_DETECT.sensitivity,
-        captionsAvailable: !!cues,
+        captionsAvailable: captions.status === 'available',
+        captionStatus: captions.status,
         truncated: det.truncated,
         createdAt: Date.now(),
       };
-      await send({ type: 'SESSION_BEGIN', meta, scores: scan.scores, cues: cues ?? [], ranges: det.ranges });
+      await send({
+        type: 'SESSION_BEGIN',
+        meta,
+        scores: scan.scores,
+        cues: captions.cues,
+        ranges: det.ranges,
+      });
       await send({ type: 'SESSION_THUMBS', thumbs: scan.thumbs });
 
       overlay.setStage('장면 캡처 중…');

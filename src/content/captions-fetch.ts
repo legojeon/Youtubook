@@ -1,66 +1,170 @@
-import { parseJson3, pickCaptionTrack, type CaptionTrackInfo } from '../core/captions';
+import {
+  parseJson3,
+  pickCaptionTrack,
+  type CaptionFetchResult,
+  type CaptionTrackInfo,
+} from '../core/captions';
 import type { Cue } from '../core/types';
+import {
+  toJson3TimedtextUrl,
+  type ObservedTimedtextUrl,
+  type TimedtextQuery,
+} from '../core/timedtext';
+import { getTimedtextUrl, waitForTimedtextUrl } from './bridge-client';
 
-async function fetchJson3(url: string): Promise<Cue[] | null> {
+interface TextResponse {
+  ok: boolean;
+  text: string;
+}
+
+type SubtitleButton = Pick<HTMLButtonElement, 'getAttribute' | 'click'>;
+
+export interface CaptionFetchDeps {
+  requestText(url: string): Promise<TextResponse>;
+  getObserved(query: TimedtextQuery): Promise<ObservedTimedtextUrl | null>;
+  waitObserved(query: TimedtextQuery): Promise<ObservedTimedtextUrl | null>;
+  getSubtitleButton(): SubtitleButton | null;
+  nextTurn(): Promise<void>;
+  preferredLanguages: readonly string[];
+}
+
+type Json3FetchResult =
+  | { status: 'available'; cues: Cue[] }
+  | { status: 'empty' }
+  | { status: 'non-ok' }
+  | { status: 'parse-error' }
+  | { status: 'too-many-events' };
+
+type ObservedFetchResult = Json3FetchResult | { status: 'invalid-url' };
+
+async function fetchJson3(url: string, requestText: CaptionFetchDeps['requestText']):
+Promise<Json3FetchResult> {
+  let response: TextResponse;
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const text = await res.text();
-    // POT(proof-of-origin) 토큰이 없는 timedtext 요청은 200 + 빈 본문으로 온다
-    if (!text) return null;
-    const cues = parseJson3(JSON.parse(text));
-    return cues.length ? cues : null;
+    response = await requestText(url);
   } catch {
-    return null;
+    return { status: 'non-ok' };
   }
-}
+  if (!response.ok) return { status: 'non-ok' };
+  if (!response.text) return { status: 'empty' };
 
-function timedtextUrls(sinceMs: number, requirePot: boolean): string[] {
-  return performance
-    .getEntriesByType('resource')
-    .filter(e => e.name.includes('/api/timedtext') && e.startTime > sinceMs)
-    .map(e => e.name)
-    .filter(u => !requirePot || u.includes('pot='));
-}
-
-/**
- * 플레이어가 직접 보낸 자막 요청(POT 포함)을 재활용한다.
- * CC 버튼을 잠깐 켜 플레이어의 timedtext 요청을 유도하고, Resource Timing에서
- * 그 URL을 찾아 그대로 재요청한다. 이 경로는 플레이어의 기본 트랙을 따른다.
- */
-async function fetchViaPlayerRequest(): Promise<Cue[] | null> {
-  // 이미 발생한 요청(사용자가 CC를 켠 적 있음) 재활용.
-  // requirePot=true — 우리가 보낸 POT 없는 실패 요청은 제외한다.
-  const prior = timedtextUrls(0, true);
-  if (prior.length) {
-    const cues = await fetchJson3(prior[prior.length - 1]);
-    if (cues) return cues;
-  }
-
-  const btn = document.querySelector<HTMLButtonElement>('.ytp-subtitles-button');
-  if (!btn || btn.getAttribute('aria-disabled') === 'true') return null;
-  const wasOn = btn.getAttribute('aria-pressed') === 'true';
-  const mark = performance.now();
-  if (!wasOn) btn.click();
   try {
-    for (let waited = 0; waited < 6000; waited += 250) {
-      const fresh = timedtextUrls(mark, false);
-      if (fresh.length) return await fetchJson3(fresh[fresh.length - 1]);
-      await new Promise(r => setTimeout(r, 250));
+    const cues = parseJson3(JSON.parse(response.text));
+    return cues.length ? { status: 'available', cues } : { status: 'empty' };
+  } catch (error) {
+    if (error instanceof Error && error.message === 'too-many-events') {
+      return { status: 'too-many-events' };
     }
-    return null;
-  } finally {
-    if (!wasOn) btn.click(); // CC 원상 복구
+    return { status: 'parse-error' };
   }
 }
 
-/** 자막이 없거나 가져오기 실패하면 null (이미지 전용 모드). */
-export async function fetchCaptions(tracks: CaptionTrackInfo[]): Promise<Cue[] | null> {
-  const track = pickCaptionTrack(tracks, [...navigator.languages]);
-  if (!track) return null;
-  const sep = track.baseUrl.includes('?') ? '&' : '?';
-  const direct = await fetchJson3(`${track.baseUrl}${sep}fmt=json3`);
-  if (direct) return direct;
-  console.warn('[youtubook] 자막 직접 요청 실패(빈 응답) — 플레이어 요청 재활용 폴백 시도');
-  return fetchViaPlayerRequest();
+function directJson3Url(baseUrl: string): string {
+  return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}fmt=json3`;
+}
+
+function failed(reason: Exclude<CaptionFetchResult, { status: 'available' | 'absent' }>['reason']):
+CaptionFetchResult {
+  return { status: 'fetch-failed', reason, cues: [] };
+}
+
+function observedFetchFailure(result: Exclude<ObservedFetchResult, { status: 'available' }>):
+CaptionFetchResult {
+  if (result.status === 'invalid-url') return failed('invalid-url');
+  if (result.status === 'too-many-events') return failed('too-many-events');
+  if (result.status === 'parse-error') return failed('parse-error');
+  return failed('direct-empty');
+}
+
+async function fetchObservedJson3(
+  observed: ObservedTimedtextUrl,
+  videoId: string,
+  deps: CaptionFetchDeps,
+): Promise<ObservedFetchResult> {
+  const url = toJson3TimedtextUrl(observed.url, videoId);
+  if (!url) return { status: 'invalid-url' };
+  return fetchJson3(url, deps.requestText);
+}
+
+function observedFetchResult(result: ObservedFetchResult): CaptionFetchResult {
+  return result.status === 'available' ? result : observedFetchFailure(result);
+}
+
+const browserDeps: CaptionFetchDeps = {
+  async requestText(url) {
+    const response = await fetch(url);
+    return { ok: response.ok, text: await response.text() };
+  },
+  getObserved: getTimedtextUrl,
+  waitObserved: waitForTimedtextUrl,
+  getSubtitleButton: () => document.querySelector<HTMLButtonElement>('.ytp-subtitles-button'),
+  nextTurn: () => new Promise(resolve => setTimeout(resolve, 0)),
+  preferredLanguages: navigator.languages,
+};
+
+export async function fetchCaptions(
+  tracks: CaptionTrackInfo[],
+  videoId: string,
+  deps: CaptionFetchDeps = browserDeps,
+): Promise<CaptionFetchResult> {
+  const track = pickCaptionTrack(tracks, [...deps.preferredLanguages]);
+  if (!track) return { status: 'absent', cues: [] };
+
+  const direct = await fetchJson3(directJson3Url(track.baseUrl), deps.requestText);
+  if (direct.status === 'available') return direct;
+  if (direct.status === 'too-many-events') return failed('too-many-events');
+
+  const query: TimedtextQuery = {
+    videoId,
+    languageCode: track.languageCode,
+    kind: track.kind,
+  };
+  let prior: ObservedTimedtextUrl | null;
+  try {
+    prior = await deps.getObserved(query);
+  } catch {
+    return failed('no-observed-url');
+  }
+  if (prior) {
+    const priorResult = await fetchObservedJson3(prior, videoId, deps);
+    if (priorResult.status === 'available') return priorResult;
+    if (
+      priorResult.status === 'invalid-url' ||
+      priorResult.status === 'too-many-events' ||
+      priorResult.status === 'parse-error'
+    ) {
+      return observedFetchResult(priorResult);
+    }
+  }
+
+  const button = deps.getSubtitleButton();
+  if (!button || button.getAttribute('aria-disabled') === 'true') {
+    return failed('no-observed-url');
+  }
+
+  const wasOn = button.getAttribute('aria-pressed') === 'true';
+  const cutoff = performance.now();
+  try {
+    if (wasOn) {
+      button.click();
+      await deps.nextTurn();
+      button.click();
+    } else {
+      button.click();
+    }
+
+    let fresh: ObservedTimedtextUrl | null;
+    try {
+      fresh = await deps.waitObserved({ ...query, afterStartTime: cutoff });
+    } catch {
+      return failed('player-timeout');
+    }
+    if (!fresh) return failed('player-timeout');
+    return observedFetchResult(await fetchObservedJson3(fresh, videoId, deps));
+  } catch {
+    return failed('player-timeout');
+  } finally {
+    const isOn = button.getAttribute('aria-pressed') === 'true';
+    if (isOn !== wasOn) button.click();
+  }
 }
