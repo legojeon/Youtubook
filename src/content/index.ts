@@ -1,12 +1,17 @@
-import { DEFAULT_DETECT, detectScenes } from '../core/detect';
+import { DEFAULT_DETECT } from '../core/detect';
 import { repKey, type SessionMeta } from '../core/types';
 import type { Msg, MsgResponse } from '../messages';
 import { getPlayerInfo, setMaxQuality } from './bridge-client';
-import { fetchCaptions } from './captions-fetch';
 import {
-  captureFrames, restorePlayerState, savePlayerState, scanVideo, waitForNoAd,
+  captureFrames, restorePlayerState, savePlayerState, waitForNoAd,
 } from './extractor';
+import {
+  extractionDurationError,
+  prepareCaptionedScan,
+  scanMetaFields,
+} from './extraction-orchestration';
 import { createOverlay } from './overlay';
+import { sendSessionStart } from './session-sender';
 
 let running = false;
 
@@ -48,9 +53,8 @@ async function runExtraction(): Promise<void> {
       console.warn('[youtubook] 브리지 호출 실패 — 자막 없이 진행합니다', err);
       return null;
     }); // 브리지 실패 → 자막 없이 진행 (폴백)
-    if (info?.isLive || !isFinite(video.duration) || video.duration <= 0) {
-      throw new Error('라이브/프리미어 영상은 지원하지 않습니다.');
-    }
+    const durationError = extractionDurationError(info?.isLive ?? false, video.duration);
+    if (durationError) throw new Error(durationError);
 
     overlay.setStage('광고 확인 중…');
     await waitForNoAd(() => overlay.setStage('광고가 끝나면 시작합니다…'), ac.signal);
@@ -61,17 +65,20 @@ async function runExtraction(): Promise<void> {
 
     let result;
     try {
-      overlay.setStage('장면 스캔 중…');
-      const scan = await scanVideo(video, DEFAULT_DETECT.sampleIntervalSec,
-        (d, t) => overlay.setProgress(d, t), ac.signal);
-
-      const det = detectScenes(scan.scores, { ...DEFAULT_DETECT, durationSec: video.duration });
-
-      overlay.setStage('자막 추출 중…');
-      const videoId = info?.videoId ?? new URLSearchParams(location.search).get('v') ?? 'unknown';
-      const captions = info
-        ? await fetchCaptions(info.captionTracks, videoId)
-        : { status: 'fetch-failed' as const, reason: 'no-observed-url' as const, cues: [] };
+      const {
+        videoId,
+        captions,
+        sampleIntervalSec,
+        scan,
+        detection: det,
+      } = await prepareCaptionedScan({
+        video,
+        info,
+        urlVideoId: new URLSearchParams(location.search).get('v'),
+        onProgress: (done, total) => overlay.setProgress(done, total),
+        onStage: stage => overlay.setStage(stage),
+        signal: ac.signal,
+      });
 
       const meta: SessionMeta = {
         id: crypto.randomUUID(),
@@ -82,20 +89,18 @@ async function runExtraction(): Promise<void> {
         durationSec: video.duration,
         videoWidth: video.videoWidth,
         videoHeight: video.videoHeight,
-        sampleIntervalSec: DEFAULT_DETECT.sampleIntervalSec,
+        ...scanMetaFields(captions, sampleIntervalSec),
         sensitivity: DEFAULT_DETECT.sensitivity,
-        captionsAvailable: captions.status === 'available',
         truncated: det.truncated,
         createdAt: Date.now(),
       };
-      await send({
+      await sendSessionStart(send, {
         type: 'SESSION_BEGIN',
         meta,
         scores: scan.scores,
         cues: captions.cues,
         ranges: det.ranges,
-      });
-      await send({ type: 'SESSION_THUMBS_CHUNK', startIndex: 0, thumbs: scan.thumbs });
+      }, scan.thumbs);
 
       overlay.setStage('장면 캡처 중…');
       // 화질 최대 설정은 캡처 직전에만 — 스캔은 64px 비교라 화질 무관이고,
