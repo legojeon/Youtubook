@@ -16,11 +16,17 @@ export interface ObservedTimedtextUrl {
 function parseTimedtextUrl(raw: string, startTime: number): ObservedTimedtextUrl | null {
   try {
     const url = new URL(raw);
-    const videoId = url.searchParams.get('v');
-    const pot = url.searchParams.get('pot');
+    const videoIds = url.searchParams.getAll('v');
+    const pots = url.searchParams.getAll('pot');
+    const videoId = videoIds[0];
+    const pot = pots[0];
     if (
       url.origin !== 'https://www.youtube.com' ||
       url.pathname !== '/api/timedtext' ||
+      url.username !== '' ||
+      url.password !== '' ||
+      videoIds.length !== 1 ||
+      pots.length !== 1 ||
       !videoId ||
       !pot
     ) {
