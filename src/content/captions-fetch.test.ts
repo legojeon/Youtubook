@@ -18,6 +18,10 @@ const json3 = JSON.stringify({
   events: [{ tStartMs: 1000, dDurationMs: 2000, segs: [{ utf8: 'hello' }] }],
 });
 
+const malformedJson3 = JSON.stringify({
+  events: [{ tStartMs: -1, dDurationMs: 100, segs: [{ utf8: 'bad' }] }],
+});
+
 const observed = (
   url = 'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=proof',
   startTime = 10,
@@ -554,17 +558,71 @@ describe('fetchCaptions', () => {
   });
 
   it('reports malformed JSON3 cues as parse-error', async () => {
-    const malformed = JSON.stringify({
-      events: [{ tStartMs: -1, dDurationMs: 100, segs: [{ utf8: 'bad' }] }],
-    });
-
     await expect(fetchCaptions([track], 'video-1', deps({
-      requestText: vi.fn(async () => ({ ok: true, text: malformed })),
+      requestText: vi.fn(async () => ({ ok: true, text: malformedJson3 })),
     }), undefined, 60)).resolves.toEqual({
       status: 'fetch-failed',
       reason: 'parse-error',
       cues: [],
     });
+  });
+
+  it('preserves a direct parse-error when player recovery produces no fresh URL', async () => {
+    const harness = buttonHarness(false);
+
+    await expect(fetchCaptions([track], 'video-1', deps({
+      requestText: vi.fn(async () => ({ ok: true, text: malformedJson3 })),
+      getSubtitleButton: () => harness.button,
+      waitObserved: vi.fn(async () => null),
+    }), undefined, 60)).resolves.toEqual({
+      status: 'fetch-failed',
+      reason: 'parse-error',
+      cues: [],
+    });
+    expect(harness.clicks).toEqual([true, false]);
+  });
+
+  it('preserves a prior parse-error when a fresh response is non-ok', async () => {
+    const harness = buttonHarness(false);
+    const prior = observed(
+      'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=malformed',
+    );
+    const fresh = observed();
+
+    await expect(fetchCaptions([track], 'video-1', deps({
+      getObserved: vi.fn(async () => prior),
+      getSubtitleButton: () => harness.button,
+      waitObserved: vi.fn(async () => fresh),
+      requestText: vi.fn(async (url: string) => {
+        if (url.includes('pot=malformed')) return { ok: true, text: malformedJson3 };
+        if (url.includes('pot=proof')) return { ok: false, text: '' };
+        return { ok: true, text: '' };
+      }),
+    }), undefined, 60)).resolves.toEqual({
+      status: 'fetch-failed',
+      reason: 'parse-error',
+      cues: [],
+    });
+    expect(harness.clicks).toEqual([true, false]);
+  });
+
+  it('returns available when a valid fresh response follows a direct parse-error', async () => {
+    const harness = buttonHarness(false);
+    const result = await fetchCaptions([track], 'video-1', deps({
+      getSubtitleButton: () => harness.button,
+      waitObserved: vi.fn(async () => observed()),
+      requestText: vi.fn(async (url: string) => (
+        url.includes('pot=proof')
+          ? { ok: true, text: json3 }
+          : { ok: true, text: malformedJson3 }
+      )),
+    }), undefined, 60);
+
+    expect(result).toEqual({
+      status: 'available',
+      cues: [{ startSec: 1, endSec: 3, text: 'hello' }],
+    });
+    expect(harness.clicks).toEqual([true, false]);
   });
 
   it('never reads Resource Timing while recovering direct-empty via a fresh observed URL', async () => {

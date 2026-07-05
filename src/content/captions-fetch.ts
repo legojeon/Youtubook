@@ -288,5 +288,7 @@ export async function fetchCaptions(
       if (!restored) result = failed('player-timeout');
     }
   }
-  return result;
+  if (result.status === 'available'
+    || (result.status === 'fetch-failed' && result.reason === 'too-many-events')) return result;
+  return lastParseFailure ?? result;
 }
