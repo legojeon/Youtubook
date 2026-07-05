@@ -2,35 +2,31 @@ import { repKey } from '../core/types';
 import { applyThumbChunk, validateThumbChunk } from '../core/thumb-chunks';
 import type { Msg, MsgResponse } from '../messages';
 import {
-  createPendingSession,
   deletePendingSession,
   deletePendingSessionsOlderThan,
-  getPendingFrames,
+  finalizePendingSession,
   getPendingSession,
   getSession,
-  pruneSessions,
-  putPendingFrame,
-  saveSession,
+  putPendingFrameAtomic,
+  resetPendingSession,
   updatePendingSession,
   updateSession,
   validatePendingFrameBudget,
 } from '../storage/db';
 import { commitPendingSession } from './session-commit';
-import { isYoutubeWatchUrl, validateId, validateSessionBegin } from './session-validation';
+import { canonicalizeSessionBegin, isYoutubeWatchUrl, validateId } from './session-validation';
 
 // Abandoned extraction data is removed on the next SESSION_BEGIN after 24 hours.
 export const PENDING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface ProtocolStorage {
-  createPendingSession: typeof createPendingSession;
   deletePendingSession: typeof deletePendingSession;
   deletePendingSessionsOlderThan: typeof deletePendingSessionsOlderThan;
-  getPendingFrames: typeof getPendingFrames;
+  finalizePendingSession: typeof finalizePendingSession;
   getPendingSession: typeof getPendingSession;
   getSession: typeof getSession;
-  pruneSessions: typeof pruneSessions;
-  putPendingFrame: typeof putPendingFrame;
-  saveSession: typeof saveSession;
+  putPendingFrameAtomic: typeof putPendingFrameAtomic;
+  resetPendingSession: typeof resetPendingSession;
   updatePendingSession: typeof updatePendingSession;
   updateSession: typeof updateSession;
 }
@@ -38,27 +34,27 @@ interface ProtocolStorage {
 export interface BackgroundMessageDeps {
   now: () => number;
   resultsUrl: string;
-  openResults: (sessionId: string) => Promise<void>;
+  openOrFocusResults: (sessionId: string) => Promise<void>;
+  broadcast: (message: Msg) => Promise<void>;
   sendToTab: (tabId: number, message: Msg) => Promise<MsgResponse>;
   storage?: Partial<ProtocolStorage>;
 }
 
 const defaultStorage: ProtocolStorage = {
-  createPendingSession,
   deletePendingSession,
   deletePendingSessionsOlderThan,
-  getPendingFrames,
+  finalizePendingSession,
   getPendingSession,
   getSession,
-  pruneSessions,
-  putPendingFrame,
-  saveSession,
+  putPendingFrameAtomic,
+  resetPendingSession,
   updatePendingSession,
   updateSession,
 };
 
 export function validateTopLevelYoutubeSender(
   sender: chrome.runtime.MessageSender,
+  expectedVideoId?: string,
 ): number {
   const tabId = sender.tab?.id;
   if (!Number.isSafeInteger(tabId) || (tabId as number) < 0) {
@@ -68,6 +64,10 @@ export function validateTopLevelYoutubeSender(
   if (!isYoutubeWatchUrl(sender.url)) {
     throw new Error('Message must come from an https://www.youtube.com/watch page.');
   }
+  if (expectedVideoId !== undefined
+    && new URL(sender.url as string).searchParams.get('v') !== expectedVideoId) {
+    throw new Error('Sender URL does not match the session video.');
+  }
   return tabId as number;
 }
 
@@ -75,6 +75,7 @@ export function validateResultsSender(
   sender: chrome.runtime.MessageSender,
   resultsUrl: string,
 ): void {
+  if (sender.frameId !== 0) throw new Error('Message must come from the top-level results frame.');
   if (typeof sender.url !== 'string') throw new Error('Results page sender URL is required.');
   let actual: URL;
   let expected: URL;
@@ -114,16 +115,12 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
     try {
       switch (msg.type) {
         case 'SESSION_BEGIN': {
-          const tabId = validateTopLevelYoutubeSender(sender);
-          validateSessionBegin(msg);
+          const tabId = validateTopLevelYoutubeSender(sender, msg.meta.videoId);
+          const canonical = canonicalizeSessionBegin(msg, tabId);
           const now = deps.now();
           await storage.deletePendingSessionsOlderThan(now - PENDING_SESSION_TTL_MS);
-          await storage.deletePendingSession(msg.meta.id);
-          await storage.createPendingSession({
-            meta: { ...msg.meta, tabId },
-            scores: msg.scores,
-            cues: msg.cues,
-            ranges: msg.ranges,
+          await storage.resetPendingSession({
+            ...canonical,
             thumbs: [],
             updatedAt: now,
           });
@@ -133,6 +130,7 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
         case 'SESSION_THUMBS_CHUNK': {
           const tabId = validateTopLevelYoutubeSender(sender);
           const pending = await requirePending(storage, msg.sessionId, tabId);
+          validateTopLevelYoutubeSender(sender, pending.meta.videoId);
           validateThumbChunk(msg.startIndex, msg.thumbs, pending.scores.length);
           const updated = await storage.updatePendingSession(msg.sessionId, current => {
             if (current.meta.tabId !== tabId) throw new Error('Sender tab does not own this session.');
@@ -146,28 +144,31 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
 
         case 'SESSION_IMAGE': {
           const tabId = validateTopLevelYoutubeSender(sender);
+          validateId(msg.sessionId, 'Session ID');
           const pending = await requirePending(storage, msg.sessionId, tabId);
-          if (typeof msg.key !== 'string'
-            || !new Set(pending.ranges.map(range => repKey(range.repSec))).has(msg.key)) {
-            throw new Error('Frame key is not expected for this session.');
-          }
-          await storage.putPendingFrame(msg.sessionId, msg.key, msg.dataUrl);
-          await storage.updatePendingSession(msg.sessionId, current => ({
-            ...current,
-            updatedAt: deps.now(),
-          }));
+          validateTopLevelYoutubeSender(sender, pending.meta.videoId);
+          await storage.putPendingFrameAtomic(
+            msg.sessionId,
+            tabId,
+            msg.key,
+            msg.dataUrl,
+            deps.now(),
+          );
           return { ok: true };
         }
 
         case 'SESSION_COMMIT': {
           const tabId = validateTopLevelYoutubeSender(sender);
-          await requirePending(storage, msg.sessionId, tabId);
+          validateId(msg.sessionId, 'Session ID');
+          const owned = await storage.getPendingSession(msg.sessionId)
+            ?? await storage.getSession(msg.sessionId);
+          if (!owned) throw new Error('조립 중인 세션이 없습니다.');
+          if (owned.meta.tabId !== tabId) throw new Error('Sender tab does not own this session.');
+          validateTopLevelYoutubeSender(sender, owned.meta.videoId);
           return await commitPendingSession(msg.sessionId, {
-            getPendingSession: storage.getPendingSession,
-            getPendingFrames: storage.getPendingFrames,
-            saveSession: storage.saveSession,
-            pruneSessions: storage.pruneSessions,
-            openResults: deps.openResults,
+            finalizePendingSession: sessionId =>
+              storage.finalizePendingSession(sessionId, tabId, 5),
+            openOrFocusResults: deps.openOrFocusResults,
             deletePendingSession: storage.deletePendingSession,
           });
         }
@@ -189,13 +190,14 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
           }
         }
 
-        case 'FRAME_READY': {
+        case 'FRAME_UPLOAD': {
           const tabId = validateTopLevelYoutubeSender(sender);
           validateId(msg.sessionId, 'Session ID');
           const updated = await storage.updateSession(msg.sessionId, current => {
             if (current.meta.tabId !== tabId) {
               throw new Error('Sender tab does not own this session.');
             }
+            validateTopLevelYoutubeSender(sender, current.meta.videoId);
             if (typeof msg.key !== 'string'
               || !current.ranges.some(range => repKey(range.repSec) === msg.key)) {
               throw new Error('Frame key is not expected for this session.');
@@ -211,6 +213,12 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
             };
           });
           if (!updated) return { ok: false, reason: '세션을 찾을 수 없습니다.' };
+          await deps.broadcast({
+            type: 'FRAME_ACCEPTED',
+            sessionId: msg.sessionId,
+            key: msg.key,
+            dataUrl: msg.dataUrl,
+          });
           return { ok: true };
         }
 

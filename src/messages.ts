@@ -16,8 +16,9 @@ export type Msg =
   // 결과 페이지 → SW → 콘텐츠: 재캡처
   | { type: 'REQUEST_CAPTURES'; sessionId: string; reps: RepRef[] }
   | { type: 'CAPTURE_FRAMES'; sessionId: string; videoId: string; reps: RepRef[] }
-  // 콘텐츠 → 모든 확장 컨텍스트: 재캡처 프레임 (SW는 DB 갱신, 결과 페이지는 UI 갱신)
-  | { type: 'FRAME_READY'; sessionId: string; key: string; dataUrl: string };
+  // 콘텐츠 → SW: 재캡처 업로드. SW 저장 성공 후에만 FRAME_ACCEPTED를 브로드캐스트한다.
+  | { type: 'FRAME_UPLOAD'; sessionId: string; key: string; dataUrl: string }
+  | { type: 'FRAME_ACCEPTED'; sessionId: string; key: string; dataUrl: string };
 
 export interface MsgResponse {
   ok: boolean;

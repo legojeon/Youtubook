@@ -120,12 +120,14 @@ async function redetect(): Promise<void> {
   }
 }
 
-// 재캡처 프레임 실시간 반영 (콘텐츠 스크립트가 브로드캐스트)
-chrome.runtime.onMessage.addListener((msg: Msg) => {
-  if (msg.type !== 'FRAME_READY' || msg.sessionId !== session?.meta.id) return;
-  session.images[msg.key] = msg.dataUrl;
-  const img = grid.querySelector<HTMLImageElement>(`.card[data-key="${msg.key}"] img`);
-  if (img) img.src = msg.dataUrl;
+// SW가 검증하고 저장한 재캡처 프레임만 실시간 반영
+chrome.runtime.onMessage.addListener((msg: unknown) => {
+  if (typeof msg !== 'object' || msg === null) return;
+  const message = msg as Msg;
+  if (message.type !== 'FRAME_ACCEPTED' || message.sessionId !== session?.meta.id) return;
+  session.images[message.key] = message.dataUrl;
+  const img = grid.querySelector<HTMLImageElement>(`.card[data-key="${message.key}"] img`);
+  if (img) img.src = message.dataUrl;
 });
 
 export interface SelectedScene {

@@ -11,12 +11,17 @@ import {
   scanMetaFields,
 } from './extraction-orchestration';
 import { createOverlay } from './overlay';
+import { runRecapture } from './recapture';
 import { sendSessionImage, sendSessionStart } from './session-sender';
 
 let running = false;
 
-chrome.runtime.onMessage.addListener((msg: Msg, _sender, sendResponse: (r: MsgResponse) => void) => {
-  if (msg.type === 'START_EXTRACTION') {
+chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r: MsgResponse) => void) => {
+  if (typeof msg !== 'object' || msg === null || typeof (msg as { type?: unknown }).type !== 'string') {
+    return false;
+  }
+  const message = msg as Msg;
+  if (message.type === 'START_EXTRACTION') {
     if (running) {
       sendResponse({ ok: false, reason: '이미 추출이 진행 중입니다.' });
       return false;
@@ -25,8 +30,22 @@ chrome.runtime.onMessage.addListener((msg: Msg, _sender, sendResponse: (r: MsgRe
     void runExtraction();
     return false;
   }
-  if (msg.type === 'CAPTURE_FRAMES') {
-    runRecapture(msg).then(sendResponse);
+  if (message.type === 'CAPTURE_FRAMES') {
+    runRecapture(message, {
+      findVideo,
+      currentVideoId: () => new URLSearchParams(location.search).get('v'),
+      isRunning: () => running,
+      setRunning: value => { running = value; },
+      addNavigateListener: listener => document.addEventListener('yt-navigate-start', listener),
+      removeNavigateListener: listener => document.removeEventListener('yt-navigate-start', listener),
+      savePlayerState,
+      restorePlayerState: (video, state) =>
+        restorePlayerState(video, state as ReturnType<typeof savePlayerState>),
+      waitForNoAd,
+      setMaxQuality,
+      captureFrames,
+      send,
+    }).then(sendResponse);
     return true; // 비동기 응답
   }
   return false;
@@ -129,43 +148,6 @@ async function runExtraction(): Promise<void> {
     }
   } finally {
     document.removeEventListener('yt-navigate-start', onNavigate);
-    running = false;
-  }
-}
-
-async function runRecapture(
-  msg: Extract<Msg, { type: 'CAPTURE_FRAMES' }>,
-): Promise<MsgResponse> {
-  const video = findVideo();
-  const currentId = new URLSearchParams(location.search).get('v');
-  if (!video || currentId !== msg.videoId) return { ok: false, reason: 'wrong-video' };
-  if (running) return { ok: false, reason: '추출이 진행 중입니다.' };
-  running = true;
-  const ac = new AbortController();
-  const onNavigate = () => ac.abort();
-  document.addEventListener('yt-navigate-start', onNavigate);
-  const state = savePlayerState(video);
-  video.muted = true;
-  video.pause();
-  try {
-    await waitForNoAd(() => {}, ac.signal);
-    await setMaxQuality().catch(() => {}); // 재캡처도 고해상도 확보
-    await captureFrames(
-      video, msg.reps, () => {},
-      async (key, dataUrl) => {
-        if (new URLSearchParams(location.search).get('v') !== msg.videoId) {
-          throw new DOMException('영상이 변경되었습니다', 'AbortError');
-        }
-        await send({ type: 'FRAME_READY', sessionId: msg.sessionId, key, dataUrl });
-      },
-      ac.signal,
-    );
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : '재캡처 실패' };
-  } finally {
-    document.removeEventListener('yt-navigate-start', onNavigate);
-    await restorePlayerState(video, state);
     running = false;
   }
 }

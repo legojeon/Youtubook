@@ -1,4 +1,5 @@
-import type { Cue, SceneRange, SessionData, SessionMeta } from '../core/types';
+import { repKey, type Cue, type SceneRange, type SessionData, type SessionMeta } from '../core/types';
+import { thumbsComplete } from '../core/thumb-chunks';
 
 const DB_NAME = 'youtubook';
 const SESSION_STORE = 'sessions';
@@ -114,9 +115,28 @@ export async function updateSession(
   });
 }
 
-export async function pruneSessions(keep: number): Promise<void> {
+function sessionsToPrune(
+  all: SessionData[],
+  keep: number,
+  protectedId?: string,
+): SessionData[] {
+  const protectedSession = protectedId
+    ? all.find(session => session.meta.id === protectedId)
+    : undefined;
+  const retained = new Set(
+    all
+      .filter(session => session !== protectedSession)
+      .sort((a, b) => b.meta.createdAt - a.meta.createdAt)
+      .slice(0, Math.max(0, keep - (protectedSession ? 1 : 0)))
+      .map(session => session.meta.id),
+  );
+  if (protectedSession) retained.add(protectedSession.meta.id);
+  return all.filter(session => !retained.has(session.meta.id));
+}
+
+export async function pruneSessions(keep: number, protectedId?: string): Promise<void> {
   const all = await sessionTx<SessionData[]>('readonly', store => store.getAll());
-  const stale = all.sort((a, b) => b.meta.createdAt - a.meta.createdAt).slice(keep);
+  const stale = sessionsToPrune(all, keep, protectedId);
   for (const session of stale) {
     await sessionTx('readwrite', store => store.delete(session.meta.id));
   }
@@ -127,6 +147,25 @@ export async function createPendingSession(session: PendingSessionData): Promise
     const transaction = db.transaction(PENDING_SESSION_STORE, 'readwrite');
     await requestResult(transaction.objectStore(PENDING_SESSION_STORE).put(session));
     await transactionDone(transaction);
+  });
+}
+
+export async function resetPendingSession(session: PendingSessionData): Promise<void> {
+  await withDb(async db => {
+    const transaction = db.transaction(
+      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      'readwrite',
+    );
+    const done = transactionDone(transaction);
+    try {
+      await deleteFrameRecords(transaction.objectStore(PENDING_FRAME_STORE), session.meta.id);
+      await requestResult(transaction.objectStore(PENDING_SESSION_STORE).put(session));
+      await done;
+    } catch (error) {
+      try { transaction.abort(); } catch { /* already completed or aborted */ }
+      await done.catch(() => {});
+      throw error;
+    }
   });
 }
 
@@ -218,6 +257,108 @@ export async function putPendingFrame(
     validatePendingFrameBudget(dataUrl, existingChars);
     await requestResult(store.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
     await transactionDone(transaction);
+  });
+}
+
+export async function putPendingFrameAtomic(
+  sessionId: string,
+  ownerTabId: number,
+  key: string,
+  dataUrl: string,
+  updatedAt: number,
+): Promise<void> {
+  await withDb(async db => {
+    const transaction = db.transaction(
+      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      'readwrite',
+    );
+    const done = transactionDone(transaction);
+    try {
+      const pendingStore = transaction.objectStore(PENDING_SESSION_STORE);
+      const frameStore = transaction.objectStore(PENDING_FRAME_STORE);
+      const pending = await requestResult<PendingSessionData | undefined>(
+        pendingStore.get(sessionId),
+      );
+      if (!pending) throw new Error('조립 중인 세션이 없습니다.');
+      if (pending.meta.tabId !== ownerTabId) {
+        throw new Error('Sender tab does not own this session.');
+      }
+      if (!pending.ranges.some(range => repKey(range.repSec) === key)) {
+        throw new Error('Frame key is not expected for this session.');
+      }
+      if (!Number.isSafeInteger(updatedAt) || updatedAt < 0) {
+        throw new Error('Frame timestamp must be a non-negative safe integer.');
+      }
+      const records = await pendingFrameRecords(frameStore, sessionId);
+      const existingChars = records.reduce(
+        (sum, record) => sum + (record.key === key ? 0 : record.dataUrl.length),
+        0,
+      );
+      validatePendingFrameBudget(dataUrl, existingChars);
+      await requestResult(frameStore.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
+      await requestResult(pendingStore.put({ ...pending, updatedAt }));
+      await done;
+    } catch (error) {
+      try { transaction.abort(); } catch { /* already completed or aborted */ }
+      await done.catch(() => {});
+      throw error;
+    }
+  });
+}
+
+export async function finalizePendingSession(
+  sessionId: string,
+  ownerTabId: number,
+  keep: number,
+): Promise<SessionData> {
+  return withDb(async db => {
+    const transaction = db.transaction(
+      [SESSION_STORE, PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      'readwrite',
+    );
+    const done = transactionDone(transaction);
+    try {
+      const sessionStore = transaction.objectStore(SESSION_STORE);
+      const pending = await requestResult<PendingSessionData | undefined>(
+        transaction.objectStore(PENDING_SESSION_STORE).get(sessionId),
+      );
+      if (!pending) {
+        const committed = await requestResult<SessionData | undefined>(sessionStore.get(sessionId));
+        if (!committed) throw new Error('조립 중인 세션이 없습니다.');
+        if (committed.meta.tabId !== ownerTabId) {
+          throw new Error('Sender tab does not own this session.');
+        }
+        await done;
+        return committed;
+      }
+      if (pending.meta.tabId !== ownerTabId) {
+        throw new Error('Sender tab does not own this session.');
+      }
+      if (!thumbsComplete(pending.thumbs, pending.scores.length)) {
+        throw new Error('썸네일 전송이 완료되지 않았습니다.');
+      }
+      const records = await pendingFrameRecords(
+        transaction.objectStore(PENDING_FRAME_STORE),
+        sessionId,
+      );
+      const images = Object.fromEntries(records.map(record => [record.key, record.dataUrl]));
+      if (pending.ranges.some(range => !Object.hasOwn(images, repKey(range.repSec)))) {
+        throw new Error('장면 이미지 전송이 완료되지 않았습니다.');
+      }
+      const { updatedAt: _updatedAt, ...withoutTimestamp } = pending;
+      const finalized: SessionData = { ...withoutTimestamp, images };
+      await requestResult(sessionStore.put(finalized));
+      const all = await requestResult<SessionData[]>(sessionStore.getAll());
+      for (const stale of sessionsToPrune(all, keep, sessionId)) {
+        await requestResult(sessionStore.delete(stale.meta.id));
+      }
+      await done;
+      return finalized;
+    } catch (error) {
+      try { transaction.abort(); } catch { /* already completed or aborted */ }
+      await done.catch(() => {});
+      throw error;
+    }
   });
 }
 

@@ -8,6 +8,8 @@ const MAX_VIDEO_URL_CHARS = 2_048;
 const MAX_VIDEO_DIMENSION = 16_384;
 const MAX_CUE_TEXT_CHARS = 10_000;
 const MAX_SCENE_RANGES = 300;
+export const MAX_TOTAL_CUE_TEXT_CHARS = 1_000_000;
+export const MAX_SESSION_BEGIN_CHARS = 2 * 1024 * 1024;
 const CAPTION_STATUSES = new Set(['available', 'absent', 'fetch-failed']);
 
 function objectRecord(value: unknown, label: string): Record<string, unknown> {
@@ -125,4 +127,51 @@ export function validateSessionBegin(
   validateScanScores(message.scores);
   validateCues(message.cues, message.meta.durationSec);
   validateRanges(message.ranges, message.meta.durationSec);
+}
+
+export function canonicalizeSessionBegin(
+  message: Extract<Msg, { type: 'SESSION_BEGIN' }>,
+  tabId: number,
+): Omit<import('../storage/db').PendingSessionData, 'thumbs' | 'updatedAt'> {
+  validateSessionBegin(message);
+  const totalCueTextChars = message.cues.reduce((sum, cue) => sum + cue.text.length, 0);
+  if (totalCueTextChars > MAX_TOTAL_CUE_TEXT_CHARS) {
+    throw new Error('Aggregate cue text exceeds the session limit.');
+  }
+
+  const canonical = {
+    meta: {
+      id: message.meta.id,
+      videoId: message.meta.videoId,
+      title: message.meta.title,
+      videoUrl: message.meta.videoUrl,
+      tabId,
+      durationSec: message.meta.durationSec,
+      videoWidth: message.meta.videoWidth,
+      videoHeight: message.meta.videoHeight,
+      sampleIntervalSec: message.meta.sampleIntervalSec,
+      sensitivity: message.meta.sensitivity,
+      captionsAvailable: message.meta.captionsAvailable,
+      ...(message.meta.captionStatus === undefined
+        ? {}
+        : { captionStatus: message.meta.captionStatus }),
+      truncated: message.meta.truncated,
+      createdAt: message.meta.createdAt,
+    },
+    scores: message.scores.map(score => score),
+    cues: message.cues.map(cue => ({
+      startSec: cue.startSec,
+      endSec: cue.endSec,
+      text: cue.text,
+    })),
+    ranges: message.ranges.map(range => ({
+      startSec: range.startSec,
+      endSec: range.endSec,
+      repSec: range.repSec,
+    })),
+  };
+  if (JSON.stringify(canonical).length > MAX_SESSION_BEGIN_CHARS) {
+    throw new Error('Session payload exceeds the aggregate size limit.');
+  }
+  return canonical;
 }

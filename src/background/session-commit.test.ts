@@ -1,167 +1,123 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionData } from '../core/types';
-import type { PendingSessionData } from '../storage/db';
 import { commitPendingSession, type SessionCommitDeps } from './session-commit';
 
-function makeSession(thumbs = ['thumb-0'], id = 'session-1'): SessionData {
+function session(): SessionData {
   return {
     meta: {
-      id,
-      videoId: 'video-1',
-      title: 'Video',
-      videoUrl: 'https://www.youtube.com/watch?v=video-1',
-      tabId: 7,
-      durationSec: 1,
-      videoWidth: 1920,
-      videoHeight: 1080,
-      sampleIntervalSec: 1,
-      sensitivity: 5,
-      captionsAvailable: false,
-      truncated: false,
-      createdAt: 1,
+      id: 'session-1', videoId: 'video-1', title: 'Video',
+      videoUrl: 'https://www.youtube.com/watch?v=video-1', tabId: 7,
+      durationSec: 1, videoWidth: 1920, videoHeight: 1080,
+      sampleIntervalSec: 1, sensitivity: 5, captionsAvailable: false,
+      truncated: false, createdAt: 1,
     },
-    scores: [0],
-    thumbs,
-    cues: [],
-    ranges: [],
-    images: {},
+    scores: [0], thumbs: ['thumb'], cues: [], ranges: [], images: {},
   };
 }
 
-function makePending(thumbs = ['thumb-0'], id = 'session-1'): PendingSessionData {
-  const { images: _images, ...pending } = makeSession(thumbs, id);
-  return { ...pending, updatedAt: 1 };
-}
-
 function deps(overrides: Partial<SessionCommitDeps> = {}): SessionCommitDeps {
-  const pending = makePending();
   return {
-    getPendingSession: async () => pending,
-    getPendingFrames: async () => ({ '0.50': 'data:image/jpeg;base64,/9j/2Q==' }),
-    saveSession: async () => {},
-    pruneSessions: async () => {},
-    openResults: async () => {},
+    finalizePendingSession: async () => session(),
+    openOrFocusResults: async () => {},
     deletePendingSession: async () => {},
     ...overrides,
   };
 }
 
 describe('commitPendingSession', () => {
-  it('rejects an incomplete persisted session without saving or removing it', async () => {
-    const session = makePending([]);
-    let saveCalls = 0;
-    let deleteCalls = 0;
-
-    const result = await commitPendingSession('session-1', deps({
-      getPendingSession: async () => session,
-      saveSession: async () => { saveCalls++; },
-      deletePendingSession: async () => { deleteCalls++; },
-    }));
-
-    expect(result.ok).toBe(false);
-    expect(saveCalls).toBe(0);
-    expect(deleteCalls).toBe(0);
-  });
-
-  it('rejects a session with a missing expected frame', async () => {
-    const pending = makePending();
-    pending.ranges = [{ startSec: 0, endSec: 1, repSec: 0.5 }];
-    let saveCalls = 0;
-
-    const result = await commitPendingSession('session-1', deps({
-      getPendingSession: async () => pending,
-      getPendingFrames: async () => ({}),
-      saveSession: async () => { saveCalls++; },
-    }));
-
-    expect(result.ok).toBe(false);
-    expect(result.reason).toContain('이미지');
-    expect(saveCalls).toBe(0);
-  });
-
-  it('retains the pending session when saving fails', async () => {
+  it('does not open or clean up when durable finalization fails', async () => {
+    let openCalls = 0;
     let deleteCalls = 0;
 
     await expect(commitPendingSession('session-1', deps({
-      saveSession: async () => { throw new Error('save failed'); },
+      finalizePendingSession: async () => { throw new Error('incomplete'); },
+      openOrFocusResults: async () => { openCalls++; },
       deletePendingSession: async () => { deleteCalls++; },
-    }))).rejects.toThrow('save failed');
+    }))).rejects.toThrow('incomplete');
 
+    expect(openCalls).toBe(0);
     expect(deleteCalls).toBe(0);
   });
 
-  it('retains the pending session when opening the results tab fails', async () => {
+  it('retains pending data when opening results fails after durable finalization', async () => {
     let deleteCalls = 0;
 
     await expect(commitPendingSession('session-1', deps({
-      openResults: async () => { throw new Error('open failed'); },
+      openOrFocusResults: async () => { throw new Error('open failed'); },
       deletePendingSession: async () => { deleteCalls++; },
     }))).rejects.toThrow('open failed');
 
     expect(deleteCalls).toBe(0);
   });
 
-  it('reconstructs after a worker restart and deletes pending data only after save, prune, and open', async () => {
-    const session = makePending();
-    const calls: string[] = [];
+  it('retries across the finalize/open crash boundary without duplicate cleanup', async () => {
+    let finalizeCalls = 0;
+    let openCalls = 0;
+    let deleteCalls = 0;
+    const shared = deps({
+      finalizePendingSession: async () => { finalizeCalls++; return session(); },
+      openOrFocusResults: async () => {
+        openCalls++;
+        if (openCalls === 1) throw new Error('worker stopped before open completed');
+      },
+      deletePendingSession: async () => { deleteCalls++; },
+    });
 
+    await expect(commitPendingSession('session-1', shared)).rejects.toThrow('worker stopped');
+    await expect(commitPendingSession('session-1', shared)).resolves.toEqual({ ok: true });
+
+    expect(finalizeCalls).toBe(2);
+    expect(openCalls).toBe(2);
+    expect(deleteCalls).toBe(1);
+  });
+
+  it('treats cleanup failure after durable finalize and open as success', async () => {
     const result = await commitPendingSession('session-1', deps({
-      getPendingSession: async () => session,
-      getPendingFrames: async () => ({ '0.50': 'data:image/jpeg;base64,/9j/2Q==' }),
-      saveSession: async saved => {
-        expect(saved).toEqual({
-          ...makeSession(),
-          images: { '0.50': 'data:image/jpeg;base64,/9j/2Q==' },
-        });
-        calls.push('save');
-      },
-      pruneSessions: async keep => {
-        expect(keep).toBe(5);
-        calls.push('prune');
-      },
-      openResults: async sessionId => {
-        expect(sessionId).toBe('session-1');
-        calls.push('open');
-      },
-      deletePendingSession: async sessionId => {
-        expect(sessionId).toBe('session-1');
-        calls.push('delete');
-      },
+      deletePendingSession: async () => { throw new Error('cleanup failed'); },
     }));
 
     expect(result).toEqual({ ok: true });
-    expect(calls).toEqual(['save', 'prune', 'open', 'delete']);
   });
 
-  it('rejects a concurrent commit without duplicating save or open', async () => {
-    let releaseSave!: () => void;
-    const saveGate = new Promise<void>(resolve => { releaseSave = resolve; });
-    let signalSaveEntered!: () => void;
-    const saveEntered = new Promise<void>(resolve => { signalSaveEntered = resolve; });
-    let saveCalls = 0;
+  it('runs durable finalize, open-or-focus, then cleanup in order', async () => {
+    const calls: string[] = [];
+
+    const result = await commitPendingSession('session-1', deps({
+      finalizePendingSession: async () => { calls.push('finalize'); return session(); },
+      openOrFocusResults: async id => { expect(id).toBe('session-1'); calls.push('open'); },
+      deletePendingSession: async id => { expect(id).toBe('session-1'); calls.push('delete'); },
+    }));
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual(['finalize', 'open', 'delete']);
+  });
+
+  it('rejects a concurrent in-worker commit without duplicating finalize or open', async () => {
+    let releaseFinalize!: () => void;
+    const gate = new Promise<void>(resolve => { releaseFinalize = resolve; });
+    let entered!: () => void;
+    const finalizeEntered = new Promise<void>(resolve => { entered = resolve; });
+    let finalizeCalls = 0;
     let openCalls = 0;
-    const sharedDeps = deps({
-      saveSession: async () => {
-        saveCalls++;
-        signalSaveEntered();
-        await saveGate;
+    const shared = deps({
+      finalizePendingSession: async () => {
+        finalizeCalls++;
+        entered();
+        await gate;
+        return session();
       },
-      openResults: async () => { openCalls++; },
+      openOrFocusResults: async () => { openCalls++; },
     });
 
-    const first = commitPendingSession('session-1', sharedDeps);
-    await saveEntered;
-    const secondPromise = commitPendingSession('session-1', sharedDeps);
-    let secondWhileFirstPending: Awaited<ReturnType<typeof commitPendingSession>> | undefined;
-    void secondPromise.then(result => { secondWhileFirstPending = result; });
-    expect(saveCalls).toBe(1);
-    expect(openCalls).toBe(0);
-    releaseSave();
+    const first = commitPendingSession('session-1', shared);
+    await finalizeEntered;
+    const second = await commitPendingSession('session-1', shared);
+    releaseFinalize();
+
+    expect(second.ok).toBe(false);
+    expect(second.reason).toContain('진행 중');
     await expect(first).resolves.toEqual({ ok: true });
-    await secondPromise;
-    expect(secondWhileFirstPending?.ok).toBe(false);
-    expect(secondWhileFirstPending?.reason).toContain('진행 중');
+    expect(finalizeCalls).toBe(1);
     expect(openCalls).toBe(1);
   });
-
 });

@@ -43,7 +43,8 @@ function deps(overrides: Partial<BackgroundMessageDeps> = {}): BackgroundMessage
   return {
     now: () => 1,
     resultsUrl: 'chrome-extension://test/src/results/results.html',
-    openResults: async () => {},
+    openOrFocusResults: async () => {},
+    broadcast: async () => {},
     sendToTab: async () => ({ ok: true }),
     ...overrides,
   };
@@ -181,9 +182,46 @@ describe('extraction protocol persistence', () => {
     expect((await getPendingSession('session-1'))?.meta.title).toBe('Production video');
   });
 
+  it('persists only canonical known fields from a valid begin payload', async () => {
+    const payload = {
+      ...begin,
+      meta: { ...begin.meta, ignored: 'meta-extra' },
+      cues: [{ startSec: 0, endSec: 1, text: 'caption', ignored: 'cue-extra' }],
+      ranges: [{ ...begin.ranges[0], ignored: 'range-extra' }],
+      ignored: 'message-extra',
+    } as unknown as typeof begin;
+
+    expect(await createSessionMessageHandler(deps())(payload, youtubeSender()))
+      .toEqual({ ok: true });
+    const stored = await getPendingSession('session-1');
+
+    expect(stored?.meta).not.toHaveProperty('ignored');
+    expect(stored?.cues[0]).toEqual({ startSec: 0, endSec: 1, text: 'caption' });
+    expect(stored?.ranges[0]).toEqual({ startSec: 0, endSec: 1, repSec: 0.5 });
+    expect(stored).not.toHaveProperty('ignored');
+  });
+
   it.each([
-    ['save', { storage: { saveSession: async () => { throw new Error('save failed'); } } }],
-    ['open', { openResults: async () => { throw new Error('open failed'); } }],
+    ['aggregate cue text', Array.from({ length: 101 }, () => ({
+      startSec: 0, endSec: 1, text: 'x'.repeat(10_000),
+    }))],
+    ['aggregate session size', Array.from({ length: 100_000 }, () => ({
+      startSec: 0, endSec: 1, text: 'x',
+    }))],
+  ])('rejects an over-budget %s payload without replacing pending data', async (_label, cues) => {
+    const handle = createSessionMessageHandler(deps());
+    await handle(begin, youtubeSender());
+    const original = await getPendingSession('session-1');
+
+    const response = await handle({ ...begin, cues }, youtubeSender());
+
+    expect(response.ok).toBe(false);
+    expect(await getPendingSession('session-1')).toEqual(original);
+  });
+
+  it.each([
+    ['finalize', { storage: { finalizePendingSession: async () => { throw new Error('save failed'); } } }],
+    ['open', { openOrFocusResults: async () => { throw new Error('open failed'); } }],
   ])('retains persisted pending records when %s fails', async (_label, failureDeps) => {
     const handle = createSessionMessageHandler(deps(failureDeps));
     await handle(begin, youtubeSender());
@@ -206,6 +244,31 @@ describe('extraction protocol persistence', () => {
 });
 
 describe('sender and session validation', () => {
+  it.each([null, undefined, 1, {}, { type: 1 }])(
+    'safely rejects malformed runtime input %#',
+    async value => {
+      await expect(createSessionMessageHandler(deps())(
+        value as unknown as Msg,
+        youtubeSender(),
+      )).resolves.toMatchObject({ ok: false });
+    },
+  );
+
+  it('binds SESSION_BEGIN and later uploads to the video ID in the sender URL', async () => {
+    const handle = createSessionMessageHandler(deps());
+
+    expect((await handle(begin, youtubeSender({
+      url: 'https://www.youtube.com/watch?v=another-video',
+    }))).ok).toBe(false);
+    expect(await getPendingSession('session-1')).toBeNull();
+
+    expect((await handle(begin, youtubeSender())).ok).toBe(true);
+    expect((await handle({
+      type: 'SESSION_THUMBS_CHUNK', sessionId: 'session-1', startIndex: 0, thumbs: ['thumb'],
+    }, youtubeSender({ url: 'https://www.youtube.com/watch?v=another-video' }))).ok).toBe(false);
+    expect((await getPendingSession('session-1'))?.thumbs).toEqual([]);
+  });
+
   it.each([
     ['missing tab', { tab: undefined }],
     ['wrong frame', { frameId: 1 }],
@@ -236,7 +299,7 @@ describe('sender and session validation', () => {
     expect((await getPendingSession('session-1'))?.thumbs).toEqual([]);
   });
 
-  it('accepts REQUEST_CAPTURES only from the results page and FRAME_READY only from the owning YouTube tab', async () => {
+  it('accepts REQUEST_CAPTURES only from the top-level results page', async () => {
     const sent = vi.fn(async () => ({ ok: true }));
     const handle = createSessionMessageHandler(deps({ sendToTab: sent }));
     await handle(begin, youtubeSender());
@@ -252,12 +315,31 @@ describe('sender and session validation', () => {
     const request: Msg = { type: 'REQUEST_CAPTURES', sessionId: 'session-1', reps: [] };
     expect((await handle(request, { url: 'https://www.youtube.com/watch?v=video-1' })).ok).toBe(false);
     expect((await handle(request, {
+      frameId: 1,
+      url: 'chrome-extension://test/src/results/results.html?session=session-1',
+    })).ok).toBe(false);
+    expect((await handle(request, {
+      frameId: 0,
       url: 'chrome-extension://test/src/results/results.html?session=session-1',
     })).ok).toBe(true);
     expect(sent).toHaveBeenCalledOnce();
+  });
+
+  it('persists FRAME_UPLOAD before broadcasting FRAME_ACCEPTED', async () => {
+    const broadcast = vi.fn(async () => {});
+    const handle = createSessionMessageHandler(deps({ broadcast }));
+    await handle(begin, youtubeSender());
+    await handle({
+      type: 'SESSION_THUMBS_CHUNK', sessionId: 'session-1', startIndex: 0, thumbs: ['thumb'],
+    }, youtubeSender());
+    await handle({
+      type: 'SESSION_IMAGE', sessionId: 'session-1', key: '0.50',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+    }, youtubeSender());
+    await handle({ type: 'SESSION_COMMIT', sessionId: 'session-1' }, youtubeSender());
 
     const frame: Msg = {
-      type: 'FRAME_READY', sessionId: 'session-1', key: '0.50',
+      type: 'FRAME_UPLOAD', sessionId: 'session-1', key: '0.50',
       dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
     };
     expect((await handle(frame, youtubeSender({ tab: { id: 8 } as chrome.tabs.Tab }))).ok).toBe(false);
@@ -265,6 +347,23 @@ describe('sender and session validation', () => {
       .toBe(false);
     expect((await handle(frame, youtubeSender())).ok).toBe(true);
     expect((await getSession('session-1'))?.images['0.50']).toContain('image/jpeg');
+    expect(broadcast).toHaveBeenCalledWith({
+      ...frame,
+      type: 'FRAME_ACCEPTED',
+    });
+  });
+
+  it('does not broadcast a rejected FRAME_UPLOAD', async () => {
+    const broadcast = vi.fn(async () => {});
+    const handle = createSessionMessageHandler(deps({ broadcast }));
+
+    const response = await handle({
+      type: 'FRAME_UPLOAD', sessionId: 'missing', key: '0.50',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+    }, youtubeSender());
+
+    expect(response.ok).toBe(false);
+    expect(broadcast).not.toHaveBeenCalled();
   });
 });
 
@@ -297,7 +396,7 @@ describe('committed frame validation', () => {
     await handle({ type: 'SESSION_COMMIT', sessionId: 'session-1' }, youtubeSender());
     const original = await getSession('session-1');
 
-    const response = await handle({ type: 'FRAME_READY', sessionId, key, dataUrl }, youtubeSender());
+    const response = await handle({ type: 'FRAME_UPLOAD', sessionId, key, dataUrl }, youtubeSender());
 
     expect(response.ok).toBe(false);
     expect(await getSession('session-1')).toEqual(original);
@@ -322,7 +421,7 @@ describe('committed frame validation', () => {
     const handle = createSessionMessageHandler(deps());
 
     const response = await handle({
-      type: 'FRAME_READY', sessionId: 'session-1', key: '8.50', dataUrl: nearLimit,
+      type: 'FRAME_UPLOAD', sessionId: 'session-1', key: '8.50', dataUrl: nearLimit,
     }, youtubeSender());
 
     expect(response.ok).toBe(false);
