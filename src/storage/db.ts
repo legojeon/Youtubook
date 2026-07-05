@@ -6,7 +6,10 @@ const SESSION_STORE = 'sessions';
 const PENDING_SESSION_STORE = 'pendingSessions';
 const PENDING_FRAME_STORE = 'pendingFrames';
 const PENDING_FRAME_SESSION_INDEX = 'sessionId';
-const VERSION = 2;
+const PENDING_USAGE_STORE = 'pendingUsage';
+const PENDING_STATE_STORE = 'pendingState';
+const PENDING_USAGE_STATE_KEY = 'usage';
+const VERSION = 3;
 
 export const MAX_PENDING_FRAME_DATA_URL_CHARS = 16 * 1024 * 1024;
 export const MAX_PENDING_SESSION_IMAGE_CHARS = 128 * 1024 * 1024;
@@ -40,10 +43,26 @@ interface PendingFrameRecord {
   dataUrl: string;
 }
 
+export interface PendingUsage {
+  metadataBytes: number;
+  frameBytes: number;
+  totalBytes: number;
+}
+
+interface PendingUsageRecord extends PendingUsage {
+  sessionId: string;
+}
+
+interface PendingUsageState {
+  key: typeof PENDING_USAGE_STATE_KEY;
+  totalBytes: number;
+  reconciled: true;
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = event => {
       const db = req.result;
       if (!db.objectStoreNames.contains(SESSION_STORE)) {
         db.createObjectStore(SESSION_STORE, { keyPath: 'meta.id' });
@@ -56,6 +75,22 @@ function openDb(): Promise<IDBDatabase> {
           keyPath: ['sessionId', 'key'],
         });
         frames.createIndex(PENDING_FRAME_SESSION_INDEX, 'sessionId');
+      }
+      if (!db.objectStoreNames.contains(PENDING_USAGE_STORE)) {
+        db.createObjectStore(PENDING_USAGE_STORE, { keyPath: 'sessionId' });
+      }
+      const stateStore = db.objectStoreNames.contains(PENDING_STATE_STORE)
+        ? (req.transaction as IDBTransaction).objectStore(PENDING_STATE_STORE)
+        : db.createObjectStore(PENDING_STATE_STORE, { keyPath: 'key' });
+      // Versions before v2 cannot contain pending payloads. Marking their new
+      // counter stores reconciled avoids an unnecessary first-write scan. A
+      // v2 database may contain pending sessions/frames and must rebuild once.
+      if (event.oldVersion < 2) {
+        stateStore.put({
+          key: PENDING_USAGE_STATE_KEY,
+          totalBytes: 0,
+          reconciled: true,
+        } satisfies PendingUsageState);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -178,17 +213,124 @@ function pendingSessionBytes(session: PendingSessionData): number {
   return storedStringBytes(JSON.stringify(session));
 }
 
-function pendingPayloadBytes(
-  sessions: PendingSessionData[],
-  frames: PendingFrameRecord[],
-): number {
-  return sessions.reduce((sum, session) => sum + pendingSessionBytes(session), 0)
-    + frames.reduce((sum, frame) => sum + storedStringBytes(frame.dataUrl), 0);
-}
-
 function leastRecentlyUpdated(a: PendingSessionData, b: PendingSessionData): number {
   if (a.updatedAt !== b.updatedAt) return a.updatedAt - b.updatedAt;
   return a.meta.id < b.meta.id ? -1 : a.meta.id > b.meta.id ? 1 : 0;
+}
+
+function usageTotal(metadataBytes: number, frameBytes: number): number {
+  if (!Number.isSafeInteger(metadataBytes) || metadataBytes < 0
+    || !Number.isSafeInteger(frameBytes) || frameBytes < 0
+    || metadataBytes > Number.MAX_SAFE_INTEGER - frameBytes) {
+    throw new Error('Pending payload counters are invalid.');
+  }
+  return metadataBytes + frameBytes;
+}
+
+function nextAggregateBytes(totalBytes: number, removedBytes: number, addedBytes: number): number {
+  if (!Number.isSafeInteger(totalBytes) || totalBytes < 0
+    || !Number.isSafeInteger(removedBytes) || removedBytes < 0
+    || !Number.isSafeInteger(addedBytes) || addedBytes < 0
+    || removedBytes > totalBytes
+    || totalBytes - removedBytes > Number.MAX_SAFE_INTEGER - addedBytes) {
+    throw new Error('Pending payload counters are invalid.');
+  }
+  return totalBytes - removedBytes + addedBytes;
+}
+
+function usageRecord(
+  sessionId: string,
+  metadataBytes: number,
+  frameBytes: number,
+): PendingUsageRecord {
+  return { sessionId, metadataBytes, frameBytes, totalBytes: usageTotal(metadataBytes, frameBytes) };
+}
+
+async function rebuildPendingUsage(
+  transaction: IDBTransaction,
+  protectedId: string | undefined,
+  limits: PendingStorageLimits,
+): Promise<PendingUsageState> {
+  const pendingStore = transaction.objectStore(PENDING_SESSION_STORE);
+  const frameStore = transaction.objectStore(PENDING_FRAME_STORE);
+  const usageStore = transaction.objectStore(PENDING_USAGE_STORE);
+  const stateStore = transaction.objectStore(PENDING_STATE_STORE);
+  const sessions = await requestResult<PendingSessionData[]>(pendingStore.getAll());
+  const frames = await requestResult<PendingFrameRecord[]>(frameStore.getAll());
+  const sessionIds = new Set(sessions.map(session => session.meta.id));
+  const frameBytes = new Map<string, number>();
+  for (const frame of frames) {
+    if (!sessionIds.has(frame.sessionId)) {
+      await requestResult(frameStore.delete([frame.sessionId, frame.key]));
+      continue;
+    }
+    frameBytes.set(
+      frame.sessionId,
+      usageTotal(frameBytes.get(frame.sessionId) ?? 0, storedStringBytes(frame.dataUrl)),
+    );
+  }
+
+  const usageById = new Map(sessions.map(session => {
+    const usage = usageRecord(
+      session.meta.id,
+      pendingSessionBytes(session),
+      frameBytes.get(session.meta.id) ?? 0,
+    );
+    return [session.meta.id, usage] as const;
+  }));
+  const retained = [...sessions];
+  let totalBytes = [...usageById.values()].reduce(
+    (sum, usage) => usageTotal(sum, usage.totalBytes),
+    0,
+  );
+  const candidates = retained
+    .filter(session => session.meta.id !== protectedId)
+    .sort(leastRecentlyUpdated);
+  const evicted = new Set<string>();
+  while (retained.length - evicted.size > limits.maxPendingSessions
+    || totalBytes > limits.maxPendingPayloadBytes) {
+    const stale = candidates.shift();
+    if (!stale) break;
+    evicted.add(stale.meta.id);
+    totalBytes = nextAggregateBytes(
+      totalBytes,
+      (usageById.get(stale.meta.id) as PendingUsageRecord).totalBytes,
+      0,
+    );
+  }
+
+  await requestResult(usageStore.clear());
+  for (const session of sessions) {
+    if (evicted.has(session.meta.id)) {
+      await requestResult(pendingStore.delete(session.meta.id));
+      await deleteFrameRecords(frameStore, session.meta.id);
+      continue;
+    }
+    await requestResult(usageStore.put(usageById.get(session.meta.id) as PendingUsageRecord));
+  }
+  const state: PendingUsageState = {
+    key: PENDING_USAGE_STATE_KEY,
+    totalBytes,
+    reconciled: true,
+  };
+  await requestResult(stateStore.put(state));
+  return state;
+}
+
+async function ensurePendingUsage(
+  transaction: IDBTransaction,
+  protectedId: string | undefined,
+  limits: PendingStorageLimits,
+): Promise<PendingUsageState> {
+  const state = await requestResult<PendingUsageState | undefined>(
+    transaction.objectStore(PENDING_STATE_STORE).get(PENDING_USAGE_STATE_KEY),
+  );
+  if (state?.reconciled === true
+    && Number.isSafeInteger(state.totalBytes)
+    && state.totalBytes >= 0) {
+    return state;
+  }
+  return rebuildPendingUsage(transaction, protectedId, limits);
 }
 
 function assertPendingPayloadFits(bytes: number, limits: PendingStorageLimits): void {
@@ -208,15 +350,26 @@ export async function resetPendingSession(
   }
   await withDb(async db => {
     const transaction = db.transaction(
-      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      [
+        PENDING_SESSION_STORE,
+        PENDING_FRAME_STORE,
+        PENDING_USAGE_STORE,
+        PENDING_STATE_STORE,
+      ],
       'readwrite',
     );
     const done = transactionDone(transaction);
     try {
       const pendingStore = transaction.objectStore(PENDING_SESSION_STORE);
       const frameStore = transaction.objectStore(PENDING_FRAME_STORE);
+      const usageStore = transaction.objectStore(PENDING_USAGE_STORE);
+      const stateStore = transaction.objectStore(PENDING_STATE_STORE);
+      const state = await ensurePendingUsage(transaction, session.meta.id, limits);
       const allSessions = await requestResult<PendingSessionData[]>(pendingStore.getAll());
-      const allFrames = await requestResult<PendingFrameRecord[]>(frameStore.getAll());
+      const allUsage = await requestResult<PendingUsageRecord[]>(usageStore.getAll());
+      const usageById = new Map(allUsage.map(usage => [usage.sessionId, usage]));
+      const currentUsage = usageById.get(session.meta.id);
+      const metadataBytes = pendingSessionBytes(session);
       const evicted = new Set(
         allSessions
           .filter(candidate => candidate.meta.id !== session.meta.id
@@ -232,22 +385,43 @@ export async function resetPendingSession(
         evicted.add((remaining.shift() as PendingSessionData).meta.id);
       }
 
-      const bytesAfterEviction = () => pendingPayloadBytes(
-        [session, ...remaining],
-        allFrames.filter(frame => frame.sessionId !== session.meta.id
-          && !evicted.has(frame.sessionId)),
+      let nextTotal = nextAggregateBytes(
+        state.totalBytes,
+        currentUsage?.totalBytes ?? 0,
+        metadataBytes,
       );
-      while (remaining.length > 0 && bytesAfterEviction() > limits.maxPendingPayloadBytes) {
-        evicted.add((remaining.shift() as PendingSessionData).meta.id);
+      for (const id of evicted) {
+        nextTotal = nextAggregateBytes(
+          nextTotal,
+          (usageById.get(id) as PendingUsageRecord).totalBytes,
+          0,
+        );
       }
-      assertPendingPayloadFits(bytesAfterEviction(), limits);
+      while (remaining.length > 0 && nextTotal > limits.maxPendingPayloadBytes) {
+        const stale = remaining.shift() as PendingSessionData;
+        evicted.add(stale.meta.id);
+        nextTotal = nextAggregateBytes(
+          nextTotal,
+          (usageById.get(stale.meta.id) as PendingUsageRecord).totalBytes,
+          0,
+        );
+      }
+      assertPendingPayloadFits(nextTotal, limits);
 
       await deleteFrameRecords(frameStore, session.meta.id);
+      if (currentUsage) await requestResult(usageStore.delete(session.meta.id));
       for (const id of evicted) {
         await requestResult(pendingStore.delete(id));
         await deleteFrameRecords(frameStore, id);
+        await requestResult(usageStore.delete(id));
       }
       await requestResult(pendingStore.put(session));
+      await requestResult(usageStore.put(usageRecord(
+        session.meta.id,
+        metadataBytes,
+        0,
+      )));
+      await requestResult(stateStore.put({ ...state, totalBytes: nextTotal }));
       await done;
     } catch (error) {
       try { transaction.abort(); } catch { /* already completed or aborted */ }
@@ -276,10 +450,18 @@ export async function updatePendingSession(
   validatePendingStorageLimits(limits);
   return withDb(async db => {
     const transaction = db.transaction(
-      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      [
+        PENDING_SESSION_STORE,
+        PENDING_FRAME_STORE,
+        PENDING_USAGE_STORE,
+        PENDING_STATE_STORE,
+      ],
       'readwrite',
     );
     const store = transaction.objectStore(PENDING_SESSION_STORE);
+    const usageStore = transaction.objectStore(PENDING_USAGE_STORE);
+    const stateStore = transaction.objectStore(PENDING_STATE_STORE);
+    const state = await ensurePendingUsage(transaction, id, limits);
     const current = await requestResult<PendingSessionData | undefined>(store.get(id));
     if (!current) {
       await transactionDone(transaction);
@@ -287,15 +469,18 @@ export async function updatePendingSession(
     }
     const next = patch(current);
     if (next.meta.id !== id) throw new Error('Pending session ID cannot be changed.');
-    const allSessions = await requestResult<PendingSessionData[]>(store.getAll());
-    const allFrames = await requestResult<PendingFrameRecord[]>(
-      transaction.objectStore(PENDING_FRAME_STORE).getAll(),
+    const usage = await requestResult<PendingUsageRecord | undefined>(usageStore.get(id));
+    if (!usage) throw new Error('Pending payload counters are missing.');
+    const nextMetadataBytes = pendingSessionBytes(next);
+    const nextTotal = nextAggregateBytes(
+      state.totalBytes,
+      usage.metadataBytes,
+      nextMetadataBytes,
     );
-    assertPendingPayloadFits(pendingPayloadBytes(
-      allSessions.map(candidate => candidate.meta.id === id ? next : candidate),
-      allFrames,
-    ), limits);
+    assertPendingPayloadFits(nextTotal, limits);
     await requestResult(store.put(next));
+    await requestResult(usageStore.put(usageRecord(id, nextMetadataBytes, usage.frameBytes)));
+    await requestResult(stateStore.put({ ...state, totalBytes: nextTotal }));
     await transactionDone(transaction);
     return next;
   });
@@ -352,29 +537,40 @@ export async function putPendingFrame(
   validatePendingStorageLimits(limits);
   await withDb(async db => {
     const transaction = db.transaction(
-      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      [
+        PENDING_SESSION_STORE,
+        PENDING_FRAME_STORE,
+        PENDING_USAGE_STORE,
+        PENDING_STATE_STORE,
+      ],
       'readwrite',
     );
     const pendingStore = transaction.objectStore(PENDING_SESSION_STORE);
-    const store = transaction.objectStore(PENDING_FRAME_STORE);
+    const frameStore = transaction.objectStore(PENDING_FRAME_STORE);
+    const usageStore = transaction.objectStore(PENDING_USAGE_STORE);
+    const stateStore = transaction.objectStore(PENDING_STATE_STORE);
+    const state = await ensurePendingUsage(transaction, sessionId, limits);
     const pending = await requestResult<PendingSessionData | undefined>(pendingStore.get(sessionId));
     if (!pending) throw new Error('조립 중인 세션이 없습니다.');
-    const records = await pendingFrameRecords(store, sessionId);
-    const existingChars = records.reduce(
-      (sum, record) => sum + (record.key === key ? 0 : record.dataUrl.length),
-      0,
+    const usage = await requestResult<PendingUsageRecord | undefined>(usageStore.get(sessionId));
+    if (!usage) throw new Error('Pending payload counters are missing.');
+    const existing = await requestResult<PendingFrameRecord | undefined>(
+      frameStore.get([sessionId, key]),
     );
+    const existingBytes = existing ? storedStringBytes(existing.dataUrl) : 0;
+    const existingChars = usage.frameBytes - existingBytes;
     validatePendingFrameBudget(dataUrl, existingChars);
-    const allSessions = await requestResult<PendingSessionData[]>(pendingStore.getAll());
-    const allFrames = await requestResult<PendingFrameRecord[]>(store.getAll());
-    assertPendingPayloadFits(pendingPayloadBytes(
-      allSessions,
-      [
-        ...allFrames.filter(frame => frame.sessionId !== sessionId || frame.key !== key),
-        { sessionId, key, dataUrl },
-      ],
-    ), limits);
-    await requestResult(store.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
+    const dataUrlBytes = storedStringBytes(dataUrl);
+    const frameBytes = usageTotal(existingChars, dataUrlBytes);
+    const nextTotal = nextAggregateBytes(
+      state.totalBytes,
+      existingBytes,
+      dataUrlBytes,
+    );
+    assertPendingPayloadFits(nextTotal, limits);
+    await requestResult(frameStore.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
+    await requestResult(usageStore.put(usageRecord(sessionId, usage.metadataBytes, frameBytes)));
+    await requestResult(stateStore.put({ ...state, totalBytes: nextTotal }));
     await transactionDone(transaction);
   });
 }
@@ -390,13 +586,21 @@ export async function putPendingFrameAtomic(
   validatePendingStorageLimits(limits);
   await withDb(async db => {
     const transaction = db.transaction(
-      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      [
+        PENDING_SESSION_STORE,
+        PENDING_FRAME_STORE,
+        PENDING_USAGE_STORE,
+        PENDING_STATE_STORE,
+      ],
       'readwrite',
     );
     const done = transactionDone(transaction);
     try {
       const pendingStore = transaction.objectStore(PENDING_SESSION_STORE);
       const frameStore = transaction.objectStore(PENDING_FRAME_STORE);
+      const usageStore = transaction.objectStore(PENDING_USAGE_STORE);
+      const stateStore = transaction.objectStore(PENDING_STATE_STORE);
+      const state = await ensurePendingUsage(transaction, sessionId, limits);
       const pending = await requestResult<PendingSessionData | undefined>(
         pendingStore.get(sessionId),
       );
@@ -410,24 +614,25 @@ export async function putPendingFrameAtomic(
       if (!Number.isSafeInteger(updatedAt) || updatedAt < 0) {
         throw new Error('Frame timestamp must be a non-negative safe integer.');
       }
-      const records = await pendingFrameRecords(frameStore, sessionId);
-      const existingChars = records.reduce(
-        (sum, record) => sum + (record.key === key ? 0 : record.dataUrl.length),
-        0,
+      const usage = await requestResult<PendingUsageRecord | undefined>(usageStore.get(sessionId));
+      if (!usage) throw new Error('Pending payload counters are missing.');
+      const existing = await requestResult<PendingFrameRecord | undefined>(
+        frameStore.get([sessionId, key]),
       );
+      const existingBytes = existing ? storedStringBytes(existing.dataUrl) : 0;
+      const existingChars = usage.frameBytes - existingBytes;
       validatePendingFrameBudget(dataUrl, existingChars);
       const updatedPending = { ...pending, updatedAt };
-      const allSessions = await requestResult<PendingSessionData[]>(pendingStore.getAll());
-      const allFrames = await requestResult<PendingFrameRecord[]>(frameStore.getAll());
-      assertPendingPayloadFits(pendingPayloadBytes(
-        allSessions.map(candidate => candidate.meta.id === sessionId ? updatedPending : candidate),
-        [
-          ...allFrames.filter(frame => frame.sessionId !== sessionId || frame.key !== key),
-          { sessionId, key, dataUrl },
-        ],
-      ), limits);
+      const nextMetadataBytes = pendingSessionBytes(updatedPending);
+      const dataUrlBytes = storedStringBytes(dataUrl);
+      const nextFrameBytes = usageTotal(existingChars, dataUrlBytes);
+      const nextUsage = usageRecord(sessionId, nextMetadataBytes, nextFrameBytes);
+      const nextTotal = nextAggregateBytes(state.totalBytes, usage.totalBytes, nextUsage.totalBytes);
+      assertPendingPayloadFits(nextTotal, limits);
       await requestResult(frameStore.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
       await requestResult(pendingStore.put(updatedPending));
+      await requestResult(usageStore.put(nextUsage));
+      await requestResult(stateStore.put({ ...state, totalBytes: nextTotal }));
       await done;
     } catch (error) {
       try { transaction.abort(); } catch { /* already completed or aborted */ }
@@ -444,12 +649,19 @@ export async function finalizePendingSession(
 ): Promise<SessionData> {
   return withDb(async db => {
     const transaction = db.transaction(
-      [SESSION_STORE, PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      [
+        SESSION_STORE,
+        PENDING_SESSION_STORE,
+        PENDING_FRAME_STORE,
+        PENDING_USAGE_STORE,
+        PENDING_STATE_STORE,
+      ],
       'readwrite',
     );
     const done = transactionDone(transaction);
     try {
       const sessionStore = transaction.objectStore(SESSION_STORE);
+      await ensurePendingUsage(transaction, sessionId, DEFAULT_PENDING_STORAGE_LIMITS);
       const committed = await requestResult<SessionData | undefined>(sessionStore.get(sessionId));
       if (committed) {
         if (committed.meta.tabId !== ownerTabId) {
@@ -509,6 +721,30 @@ export async function getPendingFrameChars(sessionId: string): Promise<number> {
   return Object.values(frames).reduce((sum, dataUrl) => sum + dataUrl.length, 0);
 }
 
+export async function getPendingUsage(sessionId: string): Promise<PendingUsage | null> {
+  return withDb(async db => {
+    const transaction = db.transaction(PENDING_USAGE_STORE, 'readonly');
+    const record = await requestResult<PendingUsageRecord | undefined>(
+      transaction.objectStore(PENDING_USAGE_STORE).get(sessionId),
+    );
+    await transactionDone(transaction);
+    if (!record) return null;
+    const { sessionId: _sessionId, ...usage } = record;
+    return usage;
+  });
+}
+
+export async function getPendingAggregatePayloadBytes(): Promise<number> {
+  return withDb(async db => {
+    const transaction = db.transaction(PENDING_STATE_STORE, 'readonly');
+    const state = await requestResult<PendingUsageState | undefined>(
+      transaction.objectStore(PENDING_STATE_STORE).get(PENDING_USAGE_STATE_KEY),
+    );
+    await transactionDone(transaction);
+    return state?.totalBytes ?? 0;
+  });
+}
+
 function deleteFrameRecords(store: IDBObjectStore, sessionId: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = store.index(PENDING_FRAME_SESSION_INDEX).openKeyCursor(
@@ -530,11 +766,31 @@ function deleteFrameRecords(store: IDBObjectStore, sessionId: string): Promise<v
 export async function deletePendingSession(sessionId: string): Promise<void> {
   await withDb(async db => {
     const transaction = db.transaction(
-      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      [
+        PENDING_SESSION_STORE,
+        PENDING_FRAME_STORE,
+        PENDING_USAGE_STORE,
+        PENDING_STATE_STORE,
+      ],
       'readwrite',
     );
-    transaction.objectStore(PENDING_SESSION_STORE).delete(sessionId);
+    const usageStore = transaction.objectStore(PENDING_USAGE_STORE);
+    const stateStore = transaction.objectStore(PENDING_STATE_STORE);
+    const state = await ensurePendingUsage(
+      transaction,
+      sessionId,
+      DEFAULT_PENDING_STORAGE_LIMITS,
+    );
+    const usage = await requestResult<PendingUsageRecord | undefined>(usageStore.get(sessionId));
+    await requestResult(transaction.objectStore(PENDING_SESSION_STORE).delete(sessionId));
     await deleteFrameRecords(transaction.objectStore(PENDING_FRAME_STORE), sessionId);
+    if (usage) {
+      await requestResult(usageStore.delete(sessionId));
+      await requestResult(stateStore.put({
+        ...state,
+        totalBytes: nextAggregateBytes(state.totalBytes, usage.totalBytes, 0),
+      }));
+    }
     await transactionDone(transaction);
   });
 }
