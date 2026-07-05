@@ -87,4 +87,33 @@ describe('TimedtextWaiterMap', () => {
     expect(overflowReply).toHaveBeenCalledWith(null);
     expect(waiters.size).toBe(MAX_PENDING_TIMEDTEXT_WAITERS);
   });
+
+  it('cancels a waiter by request ID without replying or allowing a late response', () => {
+    const cache = new TimedtextUrlCache(8);
+    const waiters = new TimedtextWaiterMap(cache);
+    const reply = vi.fn();
+
+    waiters.wait({ videoId: 'video-1' }, reply, 'yb-wait-1');
+    expect(waiters.cancel('yb-wait-1')).toBe(true);
+    expect(waiters.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+
+    cache.add(timedtextUrl, 9);
+    waiters.resolveMatches();
+    vi.advanceTimersByTime(6_000);
+
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it('treats duplicate and unknown cancellation as an idempotent no-op', () => {
+    const cache = new TimedtextUrlCache(8);
+    const waiters = new TimedtextWaiterMap(cache);
+    const reply = vi.fn();
+
+    waiters.wait({ videoId: 'video-1' }, reply, 'yb-wait-1');
+    expect(waiters.cancel('yb-wait-1')).toBe(true);
+    expect(waiters.cancel('yb-wait-1')).toBe(false);
+    expect(waiters.cancel('yb-unknown')).toBe(false);
+    expect(reply).not.toHaveBeenCalled();
+  });
 });

@@ -12,9 +12,11 @@ interface PendingWaiter {
   timer: ReturnType<typeof setTimeout>;
 }
 
+type WaiterId = number | string;
+
 export class TimedtextWaiterMap {
   private nextId = 0;
-  private readonly pending = new Map<number, PendingWaiter>();
+  private readonly pending = new Map<WaiterId, PendingWaiter>();
 
   constructor(
     private readonly cache: TimedtextUrlCache,
@@ -25,7 +27,7 @@ export class TimedtextWaiterMap {
     return this.pending.size;
   }
 
-  wait(query: TimedtextQuery, reply: Reply): void {
+  wait(query: TimedtextQuery, reply: Reply, requestId?: string): void {
     const cached = this.cache.find(query);
     if (cached) {
       reply(cached);
@@ -36,9 +38,19 @@ export class TimedtextWaiterMap {
       return;
     }
 
-    const id = ++this.nextId;
+    const id: WaiterId = requestId ?? ++this.nextId;
+    if (requestId !== undefined) this.cancel(requestId);
     const timer = setTimeout(() => this.finish(id, null), WAIT_TIMEOUT_MS);
     this.pending.set(id, { query, reply, timer });
+  }
+
+  cancel(requestId: string): boolean {
+    const waiter = this.pending.get(requestId);
+    if (!waiter) return false;
+
+    clearTimeout(waiter.timer);
+    this.pending.delete(requestId);
+    return true;
   }
 
   resolveMatches(): void {
@@ -54,7 +66,7 @@ export class TimedtextWaiterMap {
     }
   }
 
-  private finish(id: number, entry: ObservedTimedtextUrl | null): void {
+  private finish(id: WaiterId, entry: ObservedTimedtextUrl | null): void {
     const waiter = this.pending.get(id);
     if (!waiter) return;
 

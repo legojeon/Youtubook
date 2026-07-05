@@ -54,7 +54,7 @@ describe('bridge client', () => {
   });
 
   it('gives the wait command a seven-second client timeout', async () => {
-    installFakeWindow();
+    const { posted } = installFakeWindow();
     const result = waitForTimedtextUrl({ videoId: 'video-1' });
     const settled = vi.fn();
     void result.then(settled, settled);
@@ -64,6 +64,11 @@ describe('bridge client', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(settled).toHaveBeenCalledOnce();
     await expect(result).rejects.toThrow('bridge timeout: WAIT_FOR_TIMEDTEXT_URL');
+    const waitReqId = posted[0].reqId;
+    expect(posted).toEqual([
+      expect.objectContaining({ cmd: 'WAIT_FOR_TIMEDTEXT_URL', reqId: waitReqId }),
+      { source: 'youtubook-cs', cmd: 'CANCEL_TIMEDTEXT_WAIT', reqId: waitReqId },
+    ]);
   });
 
   it('keeps existing commands payload-free', async () => {
@@ -77,7 +82,7 @@ describe('bridge client', () => {
   });
 
   it('aborts a timedtext wait promptly and removes all listeners and its timer', async () => {
-    const { listenerCount } = installFakeWindow();
+    const { posted, listenerCount } = installFakeWindow();
     const controller = new AbortController();
     const removeAbortListener = vi.spyOn(controller.signal, 'removeEventListener');
 
@@ -90,5 +95,10 @@ describe('bridge client', () => {
     expect(listenerCount()).toBe(0);
     expect(removeAbortListener).toHaveBeenCalledWith('abort', expect.any(Function));
     expect(vi.getTimerCount()).toBe(0);
+    const waitReqId = posted[0].reqId;
+    expect(posted).toEqual([
+      expect.objectContaining({ cmd: 'WAIT_FOR_TIMEDTEXT_URL', reqId: waitReqId }),
+      { source: 'youtubook-cs', cmd: 'CANCEL_TIMEDTEXT_WAIT', reqId: waitReqId },
+    ]);
   });
 });

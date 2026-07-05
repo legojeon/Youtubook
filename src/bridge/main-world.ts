@@ -58,14 +58,16 @@ window.addEventListener('message', (ev: MessageEvent) => {
     window.postMessage({ source: 'youtubook-bridge', reqId: d.reqId, payload }, '*');
   const player = document.getElementById('movie_player') as YtPlayerEl | null;
 
-  if (d.cmd === 'GET_TIMEDTEXT_URL' || d.cmd === 'WAIT_FOR_TIMEDTEXT_URL') {
+  if (d.cmd === 'CANCEL_TIMEDTEXT_WAIT') {
+    pendingTimedtextWaiters.cancel(d.reqId);
+  } else if (d.cmd === 'GET_TIMEDTEXT_URL' || d.cmd === 'WAIT_FOR_TIMEDTEXT_URL') {
     const query = parseTimedtextQuery(d.payload);
     if (!query) {
       reply(null);
     } else if (d.cmd === 'GET_TIMEDTEXT_URL') {
       reply(timedtextUrls.find(query));
     } else {
-      pendingTimedtextWaiters.wait(query, reply);
+      pendingTimedtextWaiters.wait(query, reply, d.reqId);
     }
   } else if (d.cmd === 'GET_PLAYER_INFO') {
     const pr = (player?.getPlayerResponse?.() ??

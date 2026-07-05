@@ -32,7 +32,10 @@ class WorkingPerformanceObserver {
 
 describe('main-world bridge hardening', () => {
   beforeEach(() => vi.resetModules());
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it('registers the bridge even when observer startup throws', async () => {
     class ThrowingPerformanceObserver {
@@ -89,5 +92,45 @@ describe('main-world bridge hardening', () => {
       reqId: 'yb-1',
       payload: null,
     }, '*');
+  });
+
+  it('accepts cancellation without replying and rejects malformed cancellation', async () => {
+    vi.useFakeTimers();
+    const { fakeWindow, windowListeners } = installPageGlobals(
+      WorkingPerformanceObserver as unknown as typeof PerformanceObserver,
+    );
+    await import('./main-world');
+    const onMessage = windowListeners.get('message');
+
+    onMessage?.({
+      source: fakeWindow,
+      data: {
+        source: 'youtubook-cs',
+        cmd: 'WAIT_FOR_TIMEDTEXT_URL',
+        reqId: 'yb-wait-1',
+        payload: { videoId: 'video-1' },
+      },
+    } as unknown as MessageEvent);
+    onMessage?.({
+      source: fakeWindow,
+      data: {
+        source: 'youtubook-cs',
+        cmd: 'CANCEL_TIMEDTEXT_WAIT',
+        reqId: 'yb-wait-1',
+      },
+    } as unknown as MessageEvent);
+    onMessage?.({
+      source: fakeWindow,
+      data: {
+        source: 'youtubook-cs',
+        cmd: 'CANCEL_TIMEDTEXT_WAIT',
+        reqId: 'yb-wait-1',
+        payload: true,
+      },
+    } as unknown as MessageEvent);
+
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    expect(fakeWindow.postMessage).not.toHaveBeenCalled();
   });
 });

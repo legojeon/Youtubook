@@ -26,8 +26,21 @@ function bridgeCall<T>(
       return;
     }
     const reqId = `yb-${++seq}`;
+    const cancelTimedtextWait = () => {
+      if (cmd !== 'WAIT_FOR_TIMEDTEXT_URL') return;
+      try {
+        window.postMessage({
+          source: 'youtubook-cs',
+          cmd: 'CANCEL_TIMEDTEXT_WAIT',
+          reqId,
+        }, '*');
+      } catch {
+        // Best effort: the MAIN-world waiter also has its own bounded timeout.
+      }
+    };
     const timer = setTimeout(() => {
       cleanup();
+      cancelTimedtextWait();
       reject(new Error(`bridge timeout: ${cmd}`));
     }, timeoutMs);
     const onMsg = (ev: MessageEvent) => {
@@ -42,6 +55,7 @@ function bridgeCall<T>(
     };
     const onAbort = () => {
       cleanup();
+      cancelTimedtextWait();
       reject(aborted());
     };
     const cleanup = () => {

@@ -11,6 +11,30 @@ describe('parseBridgeRequest', () => {
     })).toMatchObject({ cmd: 'GET_TIMEDTEXT_URL', reqId: 'yb-1' });
   });
 
+  it('accepts a payload-free timedtext cancellation keyed by the original request ID', () => {
+    expect(parseBridgeRequest({
+      source: 'youtubook-cs',
+      cmd: 'CANCEL_TIMEDTEXT_WAIT',
+      reqId: 'yb-wait-1',
+    })).toEqual({
+      source: 'youtubook-cs',
+      cmd: 'CANCEL_TIMEDTEXT_WAIT',
+      reqId: 'yb-wait-1',
+    });
+  });
+
+  it.each([
+    { source: 'youtubook-cs', cmd: 'UNKNOWN_COMMAND', reqId: 'yb-1' },
+    {
+      source: 'youtubook-cs',
+      cmd: 'CANCEL_TIMEDTEXT_WAIT',
+      reqId: 'yb-wait-1',
+      payload: { reqId: 'other' },
+    },
+  ])('rejects an unknown or malformed command (%j)', candidate => {
+    expect(parseBridgeRequest(candidate)).toBeNull();
+  });
+
   it.each([
     null,
     [],

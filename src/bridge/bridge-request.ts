@@ -7,9 +7,23 @@ const MAX_KIND_LENGTH = 32;
 
 export interface BridgeRequest {
   source: 'youtubook-cs';
-  cmd: string;
+  cmd: BridgeCommand;
   reqId: string;
   payload?: unknown;
+}
+
+const BRIDGE_COMMANDS = [
+  'GET_PLAYER_INFO',
+  'SET_MAX_QUALITY',
+  'GET_TIMEDTEXT_URL',
+  'WAIT_FOR_TIMEDTEXT_URL',
+  'CANCEL_TIMEDTEXT_WAIT',
+] as const;
+
+type BridgeCommand = typeof BRIDGE_COMMANDS[number];
+
+function isBridgeCommand(value: unknown): value is BridgeCommand {
+  return typeof value === 'string' && (BRIDGE_COMMANDS as readonly string[]).includes(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -24,9 +38,18 @@ export function parseBridgeRequest(value: unknown): BridgeRequest | null {
   if (
     !isRecord(value) ||
     value.source !== 'youtubook-cs' ||
-    typeof value.cmd !== 'string' ||
+    !isBridgeCommand(value.cmd) ||
     !isBoundedString(value.reqId, MAX_REQUEST_ID_LENGTH) ||
     value.reqId.trim().length === 0
+  ) {
+    return null;
+  }
+
+  if (
+    (value.cmd === 'GET_PLAYER_INFO' ||
+      value.cmd === 'SET_MAX_QUALITY' ||
+      value.cmd === 'CANCEL_TIMEDTEXT_WAIT') &&
+    value.payload !== undefined
   ) {
     return null;
   }
