@@ -3,7 +3,6 @@ import { applyThumbChunk, validateThumbChunk } from '../core/thumb-chunks';
 import type { Msg, MsgResponse } from '../messages';
 import {
   deletePendingSession,
-  deletePendingSessionsOlderThan,
   finalizePendingSession,
   getPendingSession,
   getSession,
@@ -21,7 +20,6 @@ export const PENDING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface ProtocolStorage {
   deletePendingSession: typeof deletePendingSession;
-  deletePendingSessionsOlderThan: typeof deletePendingSessionsOlderThan;
   finalizePendingSession: typeof finalizePendingSession;
   getPendingSession: typeof getPendingSession;
   getSession: typeof getSession;
@@ -42,7 +40,6 @@ export interface BackgroundMessageDeps {
 
 const defaultStorage: ProtocolStorage = {
   deletePendingSession,
-  deletePendingSessionsOlderThan,
   finalizePendingSession,
   getPendingSession,
   getSession,
@@ -118,12 +115,11 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
           const tabId = validateTopLevelYoutubeSender(sender, msg.meta.videoId);
           const canonical = canonicalizeSessionBegin(msg, tabId);
           const now = deps.now();
-          await storage.deletePendingSessionsOlderThan(now - PENDING_SESSION_TTL_MS);
           await storage.resetPendingSession({
             ...canonical,
             thumbs: [],
             updatedAt: now,
-          });
+          }, Math.max(0, now - PENDING_SESSION_TTL_MS));
           return { ok: true };
         }
 

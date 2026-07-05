@@ -10,6 +10,20 @@ const VERSION = 2;
 
 export const MAX_PENDING_FRAME_DATA_URL_CHARS = 16 * 1024 * 1024;
 export const MAX_PENDING_SESSION_IMAGE_CHARS = 128 * 1024 * 1024;
+// The global payload budget is twice the per-session image ceiling; metadata
+// shares that budget. The count bound separately limits metadata-only sessions.
+export const MAX_PENDING_SESSIONS = 8;
+export const MAX_PENDING_PAYLOAD_BYTES = 256 * 1024 * 1024;
+
+export interface PendingStorageLimits {
+  maxPendingSessions: number;
+  maxPendingPayloadBytes: number;
+}
+
+const DEFAULT_PENDING_STORAGE_LIMITS: PendingStorageLimits = {
+  maxPendingSessions: MAX_PENDING_SESSIONS,
+  maxPendingPayloadBytes: MAX_PENDING_PAYLOAD_BYTES,
+};
 
 export interface PendingSessionData {
   meta: SessionMeta;
@@ -143,14 +157,55 @@ export async function pruneSessions(keep: number, protectedId?: string): Promise
 }
 
 export async function createPendingSession(session: PendingSessionData): Promise<void> {
-  await withDb(async db => {
-    const transaction = db.transaction(PENDING_SESSION_STORE, 'readwrite');
-    await requestResult(transaction.objectStore(PENDING_SESSION_STORE).put(session));
-    await transactionDone(transaction);
-  });
+  await resetPendingSession(session, 0);
 }
 
-export async function resetPendingSession(session: PendingSessionData): Promise<void> {
+function validatePendingStorageLimits(limits: PendingStorageLimits): void {
+  if (!Number.isSafeInteger(limits.maxPendingSessions) || limits.maxPendingSessions < 1) {
+    throw new Error('Pending session count limit must be a positive safe integer.');
+  }
+  if (!Number.isSafeInteger(limits.maxPendingPayloadBytes)
+    || limits.maxPendingPayloadBytes < 1) {
+    throw new Error('Pending payload byte limit must be a positive safe integer.');
+  }
+}
+
+function storedStringBytes(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function pendingSessionBytes(session: PendingSessionData): number {
+  return storedStringBytes(JSON.stringify(session));
+}
+
+function pendingPayloadBytes(
+  sessions: PendingSessionData[],
+  frames: PendingFrameRecord[],
+): number {
+  return sessions.reduce((sum, session) => sum + pendingSessionBytes(session), 0)
+    + frames.reduce((sum, frame) => sum + storedStringBytes(frame.dataUrl), 0);
+}
+
+function leastRecentlyUpdated(a: PendingSessionData, b: PendingSessionData): number {
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt - b.updatedAt;
+  return a.meta.id < b.meta.id ? -1 : a.meta.id > b.meta.id ? 1 : 0;
+}
+
+function assertPendingPayloadFits(bytes: number, limits: PendingStorageLimits): void {
+  if (bytes > limits.maxPendingPayloadBytes) {
+    throw new Error('Write exceeds the aggregate pending payload byte limit.');
+  }
+}
+
+export async function resetPendingSession(
+  session: PendingSessionData,
+  expiredBefore = 0,
+  limits: PendingStorageLimits = DEFAULT_PENDING_STORAGE_LIMITS,
+): Promise<void> {
+  validatePendingStorageLimits(limits);
+  if (!Number.isSafeInteger(expiredBefore) || expiredBefore < 0) {
+    throw new Error('Pending expiration cutoff must be a non-negative safe integer.');
+  }
   await withDb(async db => {
     const transaction = db.transaction(
       [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
@@ -158,8 +213,41 @@ export async function resetPendingSession(session: PendingSessionData): Promise<
     );
     const done = transactionDone(transaction);
     try {
-      await deleteFrameRecords(transaction.objectStore(PENDING_FRAME_STORE), session.meta.id);
-      await requestResult(transaction.objectStore(PENDING_SESSION_STORE).put(session));
+      const pendingStore = transaction.objectStore(PENDING_SESSION_STORE);
+      const frameStore = transaction.objectStore(PENDING_FRAME_STORE);
+      const allSessions = await requestResult<PendingSessionData[]>(pendingStore.getAll());
+      const allFrames = await requestResult<PendingFrameRecord[]>(frameStore.getAll());
+      const evicted = new Set(
+        allSessions
+          .filter(candidate => candidate.meta.id !== session.meta.id
+            && candidate.updatedAt < expiredBefore)
+          .map(candidate => candidate.meta.id),
+      );
+      const remaining = allSessions
+        .filter(candidate => candidate.meta.id !== session.meta.id
+          && !evicted.has(candidate.meta.id))
+        .sort(leastRecentlyUpdated);
+
+      while (remaining.length + 1 > limits.maxPendingSessions) {
+        evicted.add((remaining.shift() as PendingSessionData).meta.id);
+      }
+
+      const bytesAfterEviction = () => pendingPayloadBytes(
+        [session, ...remaining],
+        allFrames.filter(frame => frame.sessionId !== session.meta.id
+          && !evicted.has(frame.sessionId)),
+      );
+      while (remaining.length > 0 && bytesAfterEviction() > limits.maxPendingPayloadBytes) {
+        evicted.add((remaining.shift() as PendingSessionData).meta.id);
+      }
+      assertPendingPayloadFits(bytesAfterEviction(), limits);
+
+      await deleteFrameRecords(frameStore, session.meta.id);
+      for (const id of evicted) {
+        await requestResult(pendingStore.delete(id));
+        await deleteFrameRecords(frameStore, id);
+      }
+      await requestResult(pendingStore.put(session));
       await done;
     } catch (error) {
       try { transaction.abort(); } catch { /* already completed or aborted */ }
@@ -183,9 +271,14 @@ export async function getPendingSession(id: string): Promise<PendingSessionData 
 export async function updatePendingSession(
   id: string,
   patch: (session: PendingSessionData) => PendingSessionData,
+  limits: PendingStorageLimits = DEFAULT_PENDING_STORAGE_LIMITS,
 ): Promise<PendingSessionData | null> {
+  validatePendingStorageLimits(limits);
   return withDb(async db => {
-    const transaction = db.transaction(PENDING_SESSION_STORE, 'readwrite');
+    const transaction = db.transaction(
+      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      'readwrite',
+    );
     const store = transaction.objectStore(PENDING_SESSION_STORE);
     const current = await requestResult<PendingSessionData | undefined>(store.get(id));
     if (!current) {
@@ -193,6 +286,15 @@ export async function updatePendingSession(
       return null;
     }
     const next = patch(current);
+    if (next.meta.id !== id) throw new Error('Pending session ID cannot be changed.');
+    const allSessions = await requestResult<PendingSessionData[]>(store.getAll());
+    const allFrames = await requestResult<PendingFrameRecord[]>(
+      transaction.objectStore(PENDING_FRAME_STORE).getAll(),
+    );
+    assertPendingPayloadFits(pendingPayloadBytes(
+      allSessions.map(candidate => candidate.meta.id === id ? next : candidate),
+      allFrames,
+    ), limits);
     await requestResult(store.put(next));
     await transactionDone(transaction);
     return next;
@@ -245,16 +347,33 @@ export async function putPendingFrame(
   sessionId: string,
   key: string,
   dataUrl: string,
+  limits: PendingStorageLimits = DEFAULT_PENDING_STORAGE_LIMITS,
 ): Promise<void> {
+  validatePendingStorageLimits(limits);
   await withDb(async db => {
-    const transaction = db.transaction(PENDING_FRAME_STORE, 'readwrite');
+    const transaction = db.transaction(
+      [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
+      'readwrite',
+    );
+    const pendingStore = transaction.objectStore(PENDING_SESSION_STORE);
     const store = transaction.objectStore(PENDING_FRAME_STORE);
+    const pending = await requestResult<PendingSessionData | undefined>(pendingStore.get(sessionId));
+    if (!pending) throw new Error('조립 중인 세션이 없습니다.');
     const records = await pendingFrameRecords(store, sessionId);
     const existingChars = records.reduce(
       (sum, record) => sum + (record.key === key ? 0 : record.dataUrl.length),
       0,
     );
     validatePendingFrameBudget(dataUrl, existingChars);
+    const allSessions = await requestResult<PendingSessionData[]>(pendingStore.getAll());
+    const allFrames = await requestResult<PendingFrameRecord[]>(store.getAll());
+    assertPendingPayloadFits(pendingPayloadBytes(
+      allSessions,
+      [
+        ...allFrames.filter(frame => frame.sessionId !== sessionId || frame.key !== key),
+        { sessionId, key, dataUrl },
+      ],
+    ), limits);
     await requestResult(store.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
     await transactionDone(transaction);
   });
@@ -266,7 +385,9 @@ export async function putPendingFrameAtomic(
   key: string,
   dataUrl: string,
   updatedAt: number,
+  limits: PendingStorageLimits = DEFAULT_PENDING_STORAGE_LIMITS,
 ): Promise<void> {
+  validatePendingStorageLimits(limits);
   await withDb(async db => {
     const transaction = db.transaction(
       [PENDING_SESSION_STORE, PENDING_FRAME_STORE],
@@ -295,8 +416,18 @@ export async function putPendingFrameAtomic(
         0,
       );
       validatePendingFrameBudget(dataUrl, existingChars);
+      const updatedPending = { ...pending, updatedAt };
+      const allSessions = await requestResult<PendingSessionData[]>(pendingStore.getAll());
+      const allFrames = await requestResult<PendingFrameRecord[]>(frameStore.getAll());
+      assertPendingPayloadFits(pendingPayloadBytes(
+        allSessions.map(candidate => candidate.meta.id === sessionId ? updatedPending : candidate),
+        [
+          ...allFrames.filter(frame => frame.sessionId !== sessionId || frame.key !== key),
+          { sessionId, key, dataUrl },
+        ],
+      ), limits);
       await requestResult(frameStore.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
-      await requestResult(pendingStore.put({ ...pending, updatedAt }));
+      await requestResult(pendingStore.put(updatedPending));
       await done;
     } catch (error) {
       try { transaction.abort(); } catch { /* already completed or aborted */ }
@@ -406,17 +537,4 @@ export async function deletePendingSession(sessionId: string): Promise<void> {
     await deleteFrameRecords(transaction.objectStore(PENDING_FRAME_STORE), sessionId);
     await transactionDone(transaction);
   });
-}
-
-export async function deletePendingSessionsOlderThan(cutoff: number): Promise<number> {
-  const sessions = await withDb(async db => {
-    const transaction = db.transaction(PENDING_SESSION_STORE, 'readonly');
-    const records = await requestResult<PendingSessionData[]>(
-      transaction.objectStore(PENDING_SESSION_STORE).getAll(),
-    );
-    await transactionDone(transaction);
-    return records.filter(session => session.updatedAt < cutoff);
-  });
-  for (const session of sessions) await deletePendingSession(session.meta.id);
-  return sessions.length;
 }
