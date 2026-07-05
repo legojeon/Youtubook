@@ -218,7 +218,7 @@ export function createSessionMessageHandler(deps: BackgroundMessageDeps) {
             sessionId: msg.sessionId,
             key: msg.key,
             dataUrl: msg.dataUrl,
-          });
+          }).catch(() => {});
           return { ok: true };
         }
 

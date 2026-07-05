@@ -319,17 +319,19 @@ export async function finalizePendingSession(
     const done = transactionDone(transaction);
     try {
       const sessionStore = transaction.objectStore(SESSION_STORE);
-      const pending = await requestResult<PendingSessionData | undefined>(
-        transaction.objectStore(PENDING_SESSION_STORE).get(sessionId),
-      );
-      if (!pending) {
-        const committed = await requestResult<SessionData | undefined>(sessionStore.get(sessionId));
-        if (!committed) throw new Error('조립 중인 세션이 없습니다.');
+      const committed = await requestResult<SessionData | undefined>(sessionStore.get(sessionId));
+      if (committed) {
         if (committed.meta.tabId !== ownerTabId) {
           throw new Error('Sender tab does not own this session.');
         }
         await done;
         return committed;
+      }
+      const pending = await requestResult<PendingSessionData | undefined>(
+        transaction.objectStore(PENDING_SESSION_STORE).get(sessionId),
+      );
+      if (!pending) {
+        throw new Error('조립 중인 세션이 없습니다.');
       }
       if (pending.meta.tabId !== ownerTabId) {
         throw new Error('Sender tab does not own this session.');

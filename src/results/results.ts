@@ -4,6 +4,7 @@ import { scriptForRange, scriptSpans } from '../core/mapping';
 import { repKey, type SceneRange, type SessionData } from '../core/types';
 import type { Msg, MsgResponse, RepRef } from '../messages';
 import { getSession, updateSession } from '../storage/db';
+import { acceptedFrameMessage } from './accepted-frame';
 import { captionPresentationForMeta } from './caption-presentation';
 import { buildPdf, buildPptx, buildTxt, downloadBlob } from './exporters';
 
@@ -122,9 +123,9 @@ async function redetect(): Promise<void> {
 
 // SW가 검증하고 저장한 재캡처 프레임만 실시간 반영
 chrome.runtime.onMessage.addListener((msg: unknown) => {
-  if (typeof msg !== 'object' || msg === null) return;
-  const message = msg as Msg;
-  if (message.type !== 'FRAME_ACCEPTED' || message.sessionId !== session?.meta.id) return;
+  const message = acceptedFrameMessage(msg);
+  if (!message || message.sessionId !== session?.meta.id) return;
+  if (!session.ranges.some(range => repKey(range.repSec) === message.key)) return;
   session.images[message.key] = message.dataUrl;
   const img = grid.querySelector<HTMLImageElement>(`.card[data-key="${message.key}"] img`);
   if (img) img.src = message.dataUrl;

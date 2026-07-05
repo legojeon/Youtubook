@@ -37,4 +37,31 @@ describe('openOrFocusResults', () => {
       url: `${resultsUrl}?session=session%20%2F%201`,
     });
   });
+
+  it('coalesces concurrent opens for the same session within one worker', async () => {
+    let releaseCreate!: () => void;
+    const createGate = new Promise<void>(resolve => { releaseCreate = resolve; });
+    let signalCreate!: () => void;
+    const createStarted = new Promise<void>(resolve => { signalCreate = resolve; });
+    const createTab = vi.fn(async () => {
+      signalCreate();
+      await createGate;
+      return {} as chrome.tabs.Tab;
+    });
+    const dependencies = {
+      query: async () => [],
+      updateTab: async () => ({} as chrome.tabs.Tab),
+      focusWindow: async () => ({} as chrome.windows.Window),
+      createTab,
+    };
+
+    const first = openOrFocusResults('session-1', resultsUrl, dependencies);
+    await createStarted;
+    const second = openOrFocusResults('session-1', resultsUrl, dependencies);
+    await Promise.resolve();
+
+    expect(createTab).toHaveBeenCalledOnce();
+    releaseCreate();
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+  });
 });

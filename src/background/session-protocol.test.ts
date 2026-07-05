@@ -365,6 +365,30 @@ describe('sender and session validation', () => {
     expect(response.ok).toBe(false);
     expect(broadcast).not.toHaveBeenCalled();
   });
+
+  it('keeps a persisted FRAME_UPLOAD successful when broadcast delivery fails', async () => {
+    const handle = createSessionMessageHandler(deps({
+      broadcast: async () => { throw new Error('no results listener'); },
+    }));
+    await handle(begin, youtubeSender());
+    await handle({
+      type: 'SESSION_THUMBS_CHUNK', sessionId: 'session-1', startIndex: 0, thumbs: ['thumb'],
+    }, youtubeSender());
+    await handle({
+      type: 'SESSION_IMAGE', sessionId: 'session-1', key: '0.50',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+    }, youtubeSender());
+    await handle({ type: 'SESSION_COMMIT', sessionId: 'session-1' }, youtubeSender());
+
+    const response = await handle({
+      type: 'FRAME_UPLOAD', sessionId: 'session-1', key: '0.50',
+      dataUrl: 'data:image/jpeg;base64,/9j/AAAA/9k=',
+    }, youtubeSender());
+
+    expect(response).toEqual({ ok: true });
+    expect((await getSession('session-1'))?.images['0.50'])
+      .toBe('data:image/jpeg;base64,/9j/AAAA/9k=');
+  });
 });
 
 describe('committed frame validation', () => {
