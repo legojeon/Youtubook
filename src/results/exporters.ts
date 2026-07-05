@@ -1,6 +1,8 @@
 import { jsPDF } from 'jspdf';
 import PptxGenJS from 'pptxgenjs';
 import { formatScript, type ScriptEntry } from '../core/format';
+export { buildHtmlBook } from './html-book';
+export type { BookData } from './html-book';
 
 /** 페이지 크기 = 영상 픽셀 크기 (비율 유지 — 쇼츠는 세로 페이지). */
 export function buildPdf(images: string[], w: number, h: number): Blob {
