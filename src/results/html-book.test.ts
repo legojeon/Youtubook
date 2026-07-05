@@ -68,4 +68,25 @@ describe('buildHtmlBook', () => {
     const out = await html(book({ scenes: [{ image: IMG, script: '', deepLinkSec: 5 }] }));
     expect(out.match(/<article class="scene">/g)).toHaveLength(1);
   });
+
+  it('장면이 없으면 표지만 있고 장면 블록은 0개다', async () => {
+    const out = await html(book({ scenes: [] }));
+    expect(out).toContain('<h1>여우 이야기</h1>');
+    expect(out.match(/<article class="scene">/g)).toBeNull();
+  });
+
+  it('표지 이미지가 비어있으면 표지 img를 렌더링하지 않는다', async () => {
+    const out = await html(book({ cover: { title: '표지', image: '' } }));
+    expect(out.match(/<img/g)).toHaveLength(2);
+  });
+
+  it('음수 deepLinkSec은 0초로 고정된다', async () => {
+    const out = await html(book({ scenes: [{ image: IMG, script: '음수', deepLinkSec: -5 }] }));
+    expect(out).toContain('&amp;t=0s');
+  });
+
+  it('비유한(NaN) deepLinkSec은 0초로 고정된다', async () => {
+    const out = await html(book({ scenes: [{ image: IMG, script: 'NaN', deepLinkSec: NaN }] }));
+    expect(out).toContain('t=0s');
+  });
 });

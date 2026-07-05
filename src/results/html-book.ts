@@ -30,7 +30,7 @@ function sceneBlockHtml(block: SceneBlock, videoId: string): string {
   const href = escapeHtml(deepLinkUrl(videoId, block.deepLinkSec));
   return `    <article class="scene">
       <a class="photo" href="${href}" target="_blank" rel="noopener">
-        <img src="${block.image}" alt="" loading="lazy">
+        <img src="${block.image}" alt="장면 — 이 순간부터 영상 보기" loading="lazy">
         <span class="play">▶</span>
       </a>
       <p class="script">${escapeHtml(block.script)}</p>
@@ -66,7 +66,7 @@ const STYLE = `
 
 export function buildHtmlBook(book: BookData): Blob {
   const scenes = book.scenes.map(s => sceneBlockHtml(s, book.videoId)).join('\n');
-  const coverImg = book.cover.image ? `<img src="${book.cover.image}" alt="">` : '';
+  const coverImg = book.cover.image ? `<img src="${book.cover.image}" alt="${escapeHtml(book.cover.title)}">` : '';
   const html = `<!doctype html>
 <html lang="ko">
 <head>
