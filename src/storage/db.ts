@@ -9,7 +9,7 @@ const PENDING_FRAME_SESSION_INDEX = 'sessionId';
 const PENDING_USAGE_STORE = 'pendingUsage';
 const PENDING_STATE_STORE = 'pendingState';
 const PENDING_USAGE_STATE_KEY = 'usage';
-const VERSION = 3;
+const VERSION = 4;
 
 export const MAX_PENDING_FRAME_DATA_URL_CHARS = 16 * 1024 * 1024;
 export const MAX_PENDING_SESSION_IMAGE_CHARS = 128 * 1024 * 1024;
@@ -51,6 +51,9 @@ export interface PendingUsage {
 
 interface PendingUsageRecord extends PendingUsage {
   sessionId: string;
+  // Mirrors the pending session's updatedAt so LRU/expiry selection reads only
+  // these lightweight records instead of scanning full pending payloads.
+  updatedAt: number;
 }
 
 interface PendingUsageState {
@@ -91,6 +94,11 @@ function openDb(): Promise<IDBDatabase> {
           totalBytes: 0,
           reconciled: true,
         } satisfies PendingUsageState);
+      } else if (event.oldVersion < 4) {
+        // v4 adds updatedAt to usage records. Existing v2/v3 usage records lack
+        // it, so drop the reconciled marker to force a one-time rebuild that
+        // repopulates counters (and updatedAt) from the stored pending sessions.
+        stateStore.delete(PENDING_USAGE_STATE_KEY);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -218,6 +226,11 @@ function leastRecentlyUpdated(a: PendingSessionData, b: PendingSessionData): num
   return a.meta.id < b.meta.id ? -1 : a.meta.id > b.meta.id ? 1 : 0;
 }
 
+function leastRecentlyUpdatedUsage(a: PendingUsageRecord, b: PendingUsageRecord): number {
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt - b.updatedAt;
+  return a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0;
+}
+
 function usageTotal(metadataBytes: number, frameBytes: number): number {
   if (!Number.isSafeInteger(metadataBytes) || metadataBytes < 0
     || !Number.isSafeInteger(frameBytes) || frameBytes < 0
@@ -242,8 +255,15 @@ function usageRecord(
   sessionId: string,
   metadataBytes: number,
   frameBytes: number,
+  updatedAt: number,
 ): PendingUsageRecord {
-  return { sessionId, metadataBytes, frameBytes, totalBytes: usageTotal(metadataBytes, frameBytes) };
+  return {
+    sessionId,
+    metadataBytes,
+    frameBytes,
+    totalBytes: usageTotal(metadataBytes, frameBytes),
+    updatedAt,
+  };
 }
 
 async function rebuildPendingUsage(
@@ -275,6 +295,7 @@ async function rebuildPendingUsage(
       session.meta.id,
       pendingSessionBytes(session),
       frameBytes.get(session.meta.id) ?? 0,
+      session.updatedAt,
     );
     return [session.meta.id, usage] as const;
   }));
@@ -365,24 +386,26 @@ export async function resetPendingSession(
       const usageStore = transaction.objectStore(PENDING_USAGE_STORE);
       const stateStore = transaction.objectStore(PENDING_STATE_STORE);
       const state = await ensurePendingUsage(transaction, session.meta.id, limits);
-      const allSessions = await requestResult<PendingSessionData[]>(pendingStore.getAll());
+      // LRU and expiry selection reads only the lightweight usage records; the
+      // updatedAt mirror lets us avoid deserializing every pending payload
+      // (thumbnails included) just to order eviction candidates.
       const allUsage = await requestResult<PendingUsageRecord[]>(usageStore.getAll());
       const usageById = new Map(allUsage.map(usage => [usage.sessionId, usage]));
       const currentUsage = usageById.get(session.meta.id);
       const metadataBytes = pendingSessionBytes(session);
       const evicted = new Set(
-        allSessions
-          .filter(candidate => candidate.meta.id !== session.meta.id
+        allUsage
+          .filter(candidate => candidate.sessionId !== session.meta.id
             && candidate.updatedAt < expiredBefore)
-          .map(candidate => candidate.meta.id),
+          .map(candidate => candidate.sessionId),
       );
-      const remaining = allSessions
-        .filter(candidate => candidate.meta.id !== session.meta.id
-          && !evicted.has(candidate.meta.id))
-        .sort(leastRecentlyUpdated);
+      const remaining = allUsage
+        .filter(candidate => candidate.sessionId !== session.meta.id
+          && !evicted.has(candidate.sessionId))
+        .sort(leastRecentlyUpdatedUsage);
 
       while (remaining.length + 1 > limits.maxPendingSessions) {
-        evicted.add((remaining.shift() as PendingSessionData).meta.id);
+        evicted.add((remaining.shift() as PendingUsageRecord).sessionId);
       }
 
       let nextTotal = nextAggregateBytes(
@@ -398,11 +421,11 @@ export async function resetPendingSession(
         );
       }
       while (remaining.length > 0 && nextTotal > limits.maxPendingPayloadBytes) {
-        const stale = remaining.shift() as PendingSessionData;
-        evicted.add(stale.meta.id);
+        const stale = remaining.shift() as PendingUsageRecord;
+        evicted.add(stale.sessionId);
         nextTotal = nextAggregateBytes(
           nextTotal,
-          (usageById.get(stale.meta.id) as PendingUsageRecord).totalBytes,
+          stale.totalBytes,
           0,
         );
       }
@@ -420,6 +443,7 @@ export async function resetPendingSession(
         session.meta.id,
         metadataBytes,
         0,
+        session.updatedAt,
       )));
       await requestResult(stateStore.put({ ...state, totalBytes: nextTotal }));
       await done;
@@ -479,7 +503,7 @@ export async function updatePendingSession(
     );
     assertPendingPayloadFits(nextTotal, limits);
     await requestResult(store.put(next));
-    await requestResult(usageStore.put(usageRecord(id, nextMetadataBytes, usage.frameBytes)));
+    await requestResult(usageStore.put(usageRecord(id, nextMetadataBytes, usage.frameBytes, next.updatedAt)));
     await requestResult(stateStore.put({ ...state, totalBytes: nextTotal }));
     await transactionDone(transaction);
     return next;
@@ -569,7 +593,9 @@ export async function putPendingFrame(
     );
     assertPendingPayloadFits(nextTotal, limits);
     await requestResult(frameStore.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
-    await requestResult(usageStore.put(usageRecord(sessionId, usage.metadataBytes, frameBytes)));
+    await requestResult(usageStore.put(
+      usageRecord(sessionId, usage.metadataBytes, frameBytes, pending.updatedAt),
+    ));
     await requestResult(stateStore.put({ ...state, totalBytes: nextTotal }));
     await transactionDone(transaction);
   });
@@ -626,7 +652,7 @@ export async function putPendingFrameAtomic(
       const nextMetadataBytes = pendingSessionBytes(updatedPending);
       const dataUrlBytes = storedStringBytes(dataUrl);
       const nextFrameBytes = usageTotal(existingChars, dataUrlBytes);
-      const nextUsage = usageRecord(sessionId, nextMetadataBytes, nextFrameBytes);
+      const nextUsage = usageRecord(sessionId, nextMetadataBytes, nextFrameBytes, updatedAt);
       const nextTotal = nextAggregateBytes(state.totalBytes, usage.totalBytes, nextUsage.totalBytes);
       assertPendingPayloadFits(nextTotal, limits);
       await requestResult(frameStore.put({ sessionId, key, dataUrl } satisfies PendingFrameRecord));
@@ -729,7 +755,7 @@ export async function getPendingUsage(sessionId: string): Promise<PendingUsage |
     );
     await transactionDone(transaction);
     if (!record) return null;
-    const { sessionId: _sessionId, ...usage } = record;
+    const { sessionId: _sessionId, updatedAt: _updatedAt, ...usage } = record;
     return usage;
   });
 }
