@@ -50,6 +50,7 @@ async function fetchJson3(
   url: string,
   requestText: CaptionFetchDeps['requestText'],
   signal?: AbortSignal,
+  durationSec?: number,
 ):
 Promise<Json3FetchResult> {
   let response: TextResponse;
@@ -63,7 +64,7 @@ Promise<Json3FetchResult> {
   if (!response.text) return { status: 'empty' };
 
   try {
-    const cues = parseJson3(JSON.parse(response.text));
+    const cues = parseJson3(JSON.parse(response.text), durationSec);
     return cues.length ? { status: 'available', cues } : { status: 'empty' };
   } catch (error) {
     if (error instanceof Error && error.message === 'too-many-events') {
@@ -117,10 +118,11 @@ async function fetchObservedJson3(
   videoId: string,
   deps: CaptionFetchDeps,
   signal?: AbortSignal,
+  durationSec?: number,
 ): Promise<ObservedFetchResult> {
   const url = toJson3TimedtextUrl(observed.url, videoId);
   if (!url) return { status: 'invalid-url' };
-  return fetchJson3(url, deps.requestText, signal);
+  return fetchJson3(url, deps.requestText, signal, durationSec);
 }
 
 function observedFetchResult(result: ObservedFetchResult): CaptionFetchResult {
@@ -195,6 +197,7 @@ export async function fetchCaptions(
   videoId: string,
   signalOrDeps: AbortSignal | CaptionFetchDeps = browserDeps,
   depsOverride?: CaptionFetchDeps,
+  durationSec?: number,
 ): Promise<CaptionFetchResult> {
   const hasSignal = 'aborted' in signalOrDeps;
   const signal = hasSignal ? signalOrDeps as AbortSignal : undefined;
@@ -205,10 +208,12 @@ export async function fetchCaptions(
 
   const directUrl = directJson3Url(track.baseUrl, videoId);
   let hasValidFallbackUrl = directUrl !== null;
+  let lastParseFailure: CaptionFetchResult | null = null;
   if (directUrl) {
-    const direct = await fetchJson3(directUrl, deps.requestText, signal);
+    const direct = await fetchJson3(directUrl, deps.requestText, signal, durationSec);
     if (direct.status === 'available') return direct;
     if (direct.status === 'too-many-events') return failed('too-many-events');
+    if (direct.status === 'parse-error') lastParseFailure = failed('parse-error');
   }
 
   const query: TimedtextQuery = {
@@ -226,16 +231,18 @@ export async function fetchCaptions(
   }
   const cutoff = prior?.startTime ?? lookupStartedAt;
   if (prior) {
-    const priorResult = await fetchObservedJson3(prior, videoId, deps, signal);
+    const priorResult = await fetchObservedJson3(prior, videoId, deps, signal, durationSec);
     if (priorResult.status === 'available') return priorResult;
     if (priorResult.status === 'too-many-events') {
       return observedFetchResult(priorResult);
     }
+    if (priorResult.status === 'parse-error') lastParseFailure = failed('parse-error');
     if (priorResult.status !== 'invalid-url') hasValidFallbackUrl = true;
   }
 
   const button = deps.getSubtitleButton();
   if (!button || button.getAttribute('aria-disabled') === 'true') {
+    if (lastParseFailure) return lastParseFailure;
     return failed(hasValidFallbackUrl ? 'no-observed-url' : 'invalid-url');
   }
 
@@ -262,7 +269,13 @@ export async function fetchCaptions(
         // A bridge timeout is reported after restoring the original CC state.
       }
       if (fresh) {
-        result = observedFetchResult(await fetchObservedJson3(fresh, videoId, deps, signal));
+        result = observedFetchResult(await fetchObservedJson3(
+          fresh,
+          videoId,
+          deps,
+          signal,
+          durationSec,
+        ));
       }
     }
   } catch (error) {

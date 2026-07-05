@@ -1,4 +1,10 @@
-import { MAX_CAPTION_EVENTS, MAX_VIDEO_DURATION_SEC, validateScanScores } from '../core/limits';
+import {
+  MAX_CAPTION_EVENTS,
+  MAX_CUE_TEXT_CHARS,
+  MAX_TOTAL_CUE_TEXT_CHARS,
+  MAX_VIDEO_DURATION_SEC,
+  validateScanScores,
+} from '../core/limits';
 import type { Cue, SceneRange, SessionMeta } from '../core/types';
 import type { Msg } from '../messages';
 
@@ -6,9 +12,8 @@ const MAX_ID_CHARS = 200;
 const MAX_TITLE_CHARS = 1_000;
 const MAX_VIDEO_URL_CHARS = 2_048;
 const MAX_VIDEO_DIMENSION = 16_384;
-const MAX_CUE_TEXT_CHARS = 10_000;
 const MAX_SCENE_RANGES = 300;
-export const MAX_TOTAL_CUE_TEXT_CHARS = 1_000_000;
+export { MAX_TOTAL_CUE_TEXT_CHARS } from '../core/limits';
 export const MAX_SESSION_BEGIN_CHARS = 2 * 1024 * 1024;
 const CAPTION_STATUSES = new Set(['available', 'absent', 'fetch-failed']);
 

@@ -42,6 +42,7 @@ export interface PrepareCaptionedScanDeps {
   fetchCaptions: (
     tracks: CaptionTrackInfo[],
     videoId: string,
+    durationSec: number,
     signal: AbortSignal,
   ) => Promise<CaptionFetchResult>;
   scanVideo: typeof scanVideo;
@@ -49,7 +50,8 @@ export interface PrepareCaptionedScanDeps {
 }
 
 const browserDeps: PrepareCaptionedScanDeps = {
-  fetchCaptions,
+  fetchCaptions: (tracks, videoId, durationSec, signal) =>
+    fetchCaptions(tracks, videoId, signal, undefined, durationSec),
   scanVideo,
   detectScenes,
 };
@@ -62,8 +64,17 @@ export async function prepareCaptionedScan(
 
   input.onStage('자막 추출 중…');
   const captions: CaptionFetchResult = input.info
-    ? await deps.fetchCaptions(input.info.captionTracks, videoId, input.signal)
+    ? await deps.fetchCaptions(
+      input.info.captionTracks,
+      videoId,
+      input.video.duration,
+      input.signal,
+    )
     : { status: 'fetch-failed', reason: 'no-observed-url', cues: [] };
+
+  if (captions.status === 'fetch-failed') {
+    console.warn('[youtubook] 자막 추출 실패 — 자막 없이 진행합니다', captions.reason);
+  }
 
   const sampleIntervalSec = scanIntervalForDuration(input.video.duration);
   input.onStage('장면 스캔 중…');

@@ -59,7 +59,7 @@ describe('prepareCaptionedScan', () => {
       'scan:2',
     ]);
     expect(result.videoId).toBe('player-video');
-    expect(fetchCaptions).toHaveBeenCalledWith(info.captionTracks, 'player-video', signal);
+    expect(fetchCaptions).toHaveBeenCalledWith(info.captionTracks, 'player-video', 7200, signal);
     expect(result.sampleIntervalSec).toBe(2);
     expect(scanMetaFields(result.captions, result.sampleIntervalSec)).toEqual({
       sampleIntervalSec: 2,
@@ -78,6 +78,7 @@ describe('prepareCaptionedScan', () => {
     const fetchCaptions = vi.fn(async (
       _tracks,
       _videoId,
+      _durationSec,
       signal?: AbortSignal,
     ) => {
       controller.abort();
@@ -131,5 +132,36 @@ describe('prepareCaptionedScan', () => {
         captionsAvailable: false,
         captionStatus: 'fetch-failed',
       }));
+  });
+
+  it('logs only the final caption failure reason and continues scene extraction', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const scanVideo = vi.fn(async () => ({ scores: [0], thumbs: ['thumb'] }));
+    try {
+      const result = await prepareCaptionedScan({
+        video: { duration: 60 } as HTMLVideoElement,
+        info,
+        urlVideoId: null,
+        onProgress: () => {},
+        onStage: () => {},
+        signal: new AbortController().signal,
+      }, {
+        fetchCaptions: vi.fn(async () => ({
+          status: 'fetch-failed' as const,
+          reason: 'parse-error' as const,
+          cues: [] as [],
+        })),
+        scanVideo,
+        detectScenes: vi.fn(() => ({ ranges: [], truncated: false })),
+      });
+
+      expect(result.captions).toEqual({ status: 'fetch-failed', reason: 'parse-error', cues: [] });
+      expect(scanVideo).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith('[youtubook] 자막 추출 실패 — 자막 없이 진행합니다', 'parse-error');
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('timedtext');
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('pot=');
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

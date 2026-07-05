@@ -553,6 +553,20 @@ describe('fetchCaptions', () => {
     });
   });
 
+  it('reports malformed JSON3 cues as parse-error', async () => {
+    const malformed = JSON.stringify({
+      events: [{ tStartMs: -1, dDurationMs: 100, segs: [{ utf8: 'bad' }] }],
+    });
+
+    await expect(fetchCaptions([track], 'video-1', deps({
+      requestText: vi.fn(async () => ({ ok: true, text: malformed })),
+    }), undefined, 60)).resolves.toEqual({
+      status: 'fetch-failed',
+      reason: 'parse-error',
+      cues: [],
+    });
+  });
+
   it('never reads Resource Timing while recovering direct-empty via a fresh observed URL', async () => {
     const original = performance.getEntriesByType;
     const getEntriesByType = vi.fn(() => { throw new Error('must not be called'); });
