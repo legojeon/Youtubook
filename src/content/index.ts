@@ -129,7 +129,7 @@ async function runExtraction(): Promise<void> {
       await captureFrames(
         video,
         det.ranges.map(r => ({ key: repKey(r.repSec), repSec: r.repSec })),
-        (d, t) => overlay.setProgress(d, t),
+        (d, total) => overlay.setProgress(d, total),
         async (key, dataUrl) => { await sendSessionImage(send, meta.id, key, dataUrl); },
         ac.signal,
       );
