@@ -64,4 +64,33 @@ describe('openOrFocusResults', () => {
     releaseCreate();
     await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
   });
+
+  it('background mode creates an inactive tab and does not focus', async () => {
+    const createTab = vi.fn(async () => ({} as chrome.tabs.Tab));
+    const updateTab = vi.fn(async () => ({} as chrome.tabs.Tab));
+    const focusWindow = vi.fn(async () => ({} as chrome.windows.Window));
+
+    await openOrFocusResults('session-1', resultsUrl, {
+      query: async () => [], updateTab, focusWindow, createTab,
+    }, true);
+
+    expect(createTab).toHaveBeenCalledWith({ url: `${resultsUrl}?session=session-1`, active: false });
+    expect(updateTab).not.toHaveBeenCalled();
+    expect(focusWindow).not.toHaveBeenCalled();
+  });
+
+  it('background mode leaves an existing tab alone (no focus steal)', async () => {
+    const updateTab = vi.fn(async () => ({} as chrome.tabs.Tab));
+    const focusWindow = vi.fn(async () => ({} as chrome.windows.Window));
+    const createTab = vi.fn(async () => ({} as chrome.tabs.Tab));
+
+    await openOrFocusResults('session-1', resultsUrl, {
+      query: async () => [{ id: 7, windowId: 8, url: `${resultsUrl}?session=session-1` } as chrome.tabs.Tab],
+      updateTab, focusWindow, createTab,
+    }, true);
+
+    expect(updateTab).not.toHaveBeenCalled();
+    expect(focusWindow).not.toHaveBeenCalled();
+    expect(createTab).not.toHaveBeenCalled();
+  });
 });

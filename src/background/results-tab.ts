@@ -14,6 +14,7 @@ export async function openOrFocusResults(
   sessionId: string,
   resultsUrl: string,
   deps: ResultsTabDeps,
+  background = false,
 ): Promise<void> {
   const url = `${resultsUrl}?session=${encodeURIComponent(sessionId)}`;
   const active = inFlight.get(url);
@@ -23,13 +24,14 @@ export async function openOrFocusResults(
     const existing = (await deps.query({ url: `${resultsUrl}?session=*` }))
       .find(tab => tab.url === url);
     if (existing?.id !== undefined) {
+      if (background) return; // auto-open on completion: don't yank focus
       await deps.updateTab(existing.id, { active: true });
       if (existing.windowId !== undefined) {
         await deps.focusWindow(existing.windowId, { focused: true });
       }
       return;
     }
-    await deps.createTab({ url });
+    await deps.createTab(background ? { url, active: false } : { url });
   })();
   inFlight.set(url, operation);
   try {
