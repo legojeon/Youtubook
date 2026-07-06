@@ -14,14 +14,15 @@ export function createOverlay(onCancel: () => void): Overlay {
       .box {
         position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
         z-index: 2147483647; background: rgba(20, 20, 20, .95); color: #fff;
-        font: 13px/1.5 system-ui, sans-serif; border-radius: 10px;
+        font-size: 13px; line-height: 1.5; border-radius: 16px;
         padding: 12px 16px; width: 340px; box-shadow: 0 4px 16px rgba(0,0,0,.4);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif;
       }
       .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
       .stage { font-weight: 600; }
       .hint { color: #bbb; font-size: 11px; margin-top: 4px; }
       .bar { height: 6px; background: #444; border-radius: 3px; margin-top: 8px; overflow: hidden; }
-      .fill { height: 100%; width: 0%; background: #3ea6ff; transition: width .2s; }
+      .fill { height: 100%; width: 0%; background: #e60023; transition: width .2s; }
       .error { color: #ff6b6b; font-weight: 600; }
       button {
         background: none; border: 1px solid #666; color: #ddd;
