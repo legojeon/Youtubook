@@ -8,6 +8,7 @@ import { acceptedFrameMessage } from './accepted-frame';
 import { captionPresentationForMeta } from './caption-presentation';
 import { buildHtmlBook, buildPdf, buildPptx, buildTxt, downloadBlob, type BookData } from './exporters';
 import { resizeForBook, resizeForSlides } from './image-resize';
+import { applyI18n, t } from '../ui/i18n';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const grid = $('#grid');
@@ -34,13 +35,13 @@ function banner(text: string, kind: 'warn' | 'error' = 'warn'): void {
 }
 
 function updateSelectedCount(): void {
-  $('#selected-count').textContent = `${selected.size}개 선택`;
+  $('#selected-count').textContent = t('selectedCount', String(selected.size));
   ($('#next') as HTMLButtonElement).disabled = selected.size === 0;
 }
 
 function render(): void {
   $('#video-title').textContent = session.meta.title;
-  $('#scene-count').textContent = `장면 ${session.ranges.length}개`;
+  $('#scene-count').textContent = t('sceneCount', String(session.ranges.length));
   grid.replaceChildren(
     ...session.ranges.map(range => {
       const key = repKey(range.repSec);
@@ -95,7 +96,7 @@ async function redetect(): Promise<void> {
       meta: { ...s.meta, sensitivity, truncated: det.truncated },
     }));
     if (!updated) {
-      banner('세션 저장에 실패했습니다. 페이지를 새로고침해주세요.', 'error');
+      banner(t('banner_saveFail'), 'error');
       return;
     }
     session = { ...updated, images: { ...session.images, ...updated.images } };
@@ -112,8 +113,8 @@ async function redetect(): Promise<void> {
     if (!res.ok) {
       banner(
         res.reason === 'tab-closed' || res.reason === 'wrong-video'
-          ? '고해상도 캡처를 하려면 원본 유튜브 영상 탭을 열어둔 상태여야 합니다. 지금은 미리보기 화질로 표시됩니다.'
-          : `재캡처 실패: ${res.reason ?? '알 수 없는 오류'}`,
+          ? t('banner_recaptureTab')
+          : t('banner_recaptureFail', res.reason ?? 'unknown'),
         'error',
       );
     }
@@ -156,10 +157,11 @@ function getSelectedScenes(): SelectedScene[] {
   }));
 }
 void (async () => {
+  applyI18n(document);
   const id = new URLSearchParams(location.search).get('session');
   const loaded = id ? await getSession(id) : null;
   if (!loaded) {
-    $('#video-title').textContent = '세션을 찾을 수 없습니다. 유튜브에서 다시 생성해주세요.';
+    $('#video-title').textContent = t('results_notFound');
     return;
   }
   session = loaded;
@@ -185,12 +187,12 @@ void (async () => {
 
   const busy = async (btn: HTMLButtonElement, fn: () => Promise<void>) => {
     btn.disabled = true;
-    $('#export-status').textContent = '생성 중…';
+    $('#export-status').textContent = t('export_generating');
     try {
       await fn();
-      $('#export-status').textContent = '완료! 다운로드 폴더를 확인하세요.';
+      $('#export-status').textContent = t('export_done');
     } catch (err) {
-      $('#export-status').textContent = `생성 실패: ${err instanceof Error ? err.message : err}`;
+      $('#export-status').textContent = t('export_failed', err instanceof Error ? err.message : String(err));
     } finally {
       btn.disabled = false;
     }
@@ -247,7 +249,7 @@ void (async () => {
 
   if (captionPresentation.warning) banner(captionPresentation.warning);
   if (session.meta.truncated) {
-    banner('장면이 300개를 초과해 강한 전환 위주로 표시합니다. 민감도를 낮춰보세요.');
+    banner(t('banner_truncated'));
   }
   render();
 })();
