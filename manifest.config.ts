@@ -35,5 +35,5 @@ export default defineManifest({
     },
   ],
   host_permissions: ['https://www.youtube.com/*'],
-  permissions: ['storage'],
+  permissions: ['storage', 'notifications'],
 });
