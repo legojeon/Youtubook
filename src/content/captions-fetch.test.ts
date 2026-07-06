@@ -18,9 +18,9 @@ const json3 = JSON.stringify({
   events: [{ tStartMs: 1000, dDurationMs: 2000, segs: [{ utf8: 'hello' }] }],
 });
 
-const malformedJson3 = JSON.stringify({
-  events: [{ tStartMs: -1, dDurationMs: 100, segs: [{ utf8: 'bad' }] }],
-});
+// Not valid JSON — JSON.parse throws, so the fetch reports parse-error.
+// (Individually malformed cues are now skipped/clamped, not treated as parse-error.)
+const malformedJson3 = '{ "events": [ { "tStartMs":';
 
 const observed = (
   url = 'https://www.youtube.com/api/timedtext?v=video-1&lang=en&kind=asr&pot=proof',
@@ -557,7 +557,7 @@ describe('fetchCaptions', () => {
     });
   });
 
-  it('reports malformed JSON3 cues as parse-error', async () => {
+  it('reports an unparseable JSON3 response as parse-error', async () => {
     await expect(fetchCaptions([track], 'video-1', deps({
       requestText: vi.fn(async () => ({ ok: true, text: malformedJson3 })),
     }), undefined, 60)).resolves.toEqual({
