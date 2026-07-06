@@ -84,6 +84,30 @@ function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingCo
   return [cv, ctx];
 }
 
+export const DIMENSIONS_TIMEOUT_MS = 15_000;
+
+/**
+ * Wait for the video to report non-zero dimensions. `setMaxQuality` (and mid-roll
+ * ads) reset the media source, so `videoWidth`/`videoHeight` briefly drop to 0 —
+ * a one-shot check would abort capture. Polls until they return or the timeout.
+ */
+export async function waitForVideoDimensions(
+  video: { videoWidth: number; videoHeight: number },
+  signal: AbortSignal,
+  deps: { nextFrame: () => Promise<void>; now: () => number } =
+    { nextFrame, now: () => performance.now() },
+  timeoutMs = DIMENSIONS_TIMEOUT_MS,
+): Promise<void> {
+  const start = deps.now();
+  while (!video.videoWidth || !video.videoHeight) {
+    if (signal.aborted) throw aborted();
+    if (deps.now() - start > timeoutMs) {
+      throw new Error('영상 크기를 확인할 수 없습니다 — 영상이 로드된 후 다시 시도해주세요.');
+    }
+    await deps.nextFrame();
+  }
+}
+
 export interface ScanResult {
   scores: number[];
   thumbs: string[];
@@ -95,9 +119,7 @@ export async function scanVideo(
   onProgress: (done: number, total: number) => void,
   signal: AbortSignal,
 ): Promise<ScanResult> {
-  if (!video.videoWidth || !video.videoHeight) {
-    throw new Error('영상 크기를 확인할 수 없습니다 — 영상이 로드된 후 다시 시도해주세요.');
-  }
+  await waitForVideoDimensions(video, signal);
   const times = buildSampleTimes(video.duration, intervalSec);
   const aspect = video.videoHeight / video.videoWidth || 9 / 16;
   const thumbW = 160;
@@ -131,9 +153,7 @@ export async function captureFrames(
   onFrame: (key: string, dataUrl: string) => Promise<void>,
   signal: AbortSignal,
 ): Promise<void> {
-  if (!video.videoWidth || !video.videoHeight) {
-    throw new Error('영상 크기를 확인할 수 없습니다 — 영상이 로드된 후 다시 시도해주세요.');
-  }
+  await waitForVideoDimensions(video, signal);
   const [, ctx] = makeCanvas(video.videoWidth, video.videoHeight);
   for (let i = 0; i < reps.length; i++) {
     if (signal.aborted) throw aborted();
