@@ -16,8 +16,19 @@ function aborted(): DOMException {
   return new DOMException('사용자가 취소했습니다', 'AbortError');
 }
 
-/** 백그라운드 탭에서 rAF가 멎어도 진행되도록 타임아웃과 경쟁시킨다. */
-function nextFrame(): Promise<void> {
+/**
+ * seeked 직후의 settle. 보이는 탭은 rAF 페인트를 기다린다(기존 동작). 숨긴 탭은 rAF가
+ * 동결되고 setTimeout이 ~1s로 클램프되므로, 클램프를 받지 않는 MessageChannel yield로
+ * 즉시 진행한다(캡처 정확성은 seeked 이벤트가 보장 — 설계 §2에서 실측).
+ */
+export function nextFrame(): Promise<void> {
+  if (document.hidden) {
+    return new Promise(resolve => {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = () => resolve();
+      ch.port2.postMessage(0);
+    });
+  }
   return new Promise(resolve => {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
