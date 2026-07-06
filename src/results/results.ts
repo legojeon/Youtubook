@@ -247,7 +247,7 @@ void (async () => {
       downloadBlob(buildHtmlBook(bookData), `${base()}_book.html`);
     }));
 
-  if (captionPresentation.warning) banner(captionPresentation.warning);
+  if (captionPresentation.warningKey) banner(t(captionPresentation.warningKey));
   if (session.meta.truncated) {
     banner(t('banner_truncated'));
   }

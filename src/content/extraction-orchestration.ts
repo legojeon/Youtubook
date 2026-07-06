@@ -9,12 +9,8 @@ import { fetchCaptions } from './captions-fetch';
 import { scanVideo } from './extractor';
 
 export function extractionDurationError(isLive: boolean, durationSec: number): string | null {
-  if (isLive || !Number.isFinite(durationSec) || durationSec <= 0) {
-    return '라이브/프리미어 영상은 지원하지 않습니다.';
-  }
-  if (durationSec > MAX_VIDEO_DURATION_SEC) {
-    return '최대 2시간 영상까지 지원합니다.';
-  }
+  if (isLive || !Number.isFinite(durationSec) || durationSec <= 0) return 'error_liveUnsupported';
+  if (durationSec > MAX_VIDEO_DURATION_SEC) return 'error_tooLong';
   return null;
 }
 
@@ -62,7 +58,7 @@ export async function prepareCaptionedScan(
 ) {
   const videoId = input.info?.videoId ?? input.urlVideoId ?? 'unknown';
 
-  input.onStage('자막 추출 중…');
+  input.onStage('stage_captions');
   const captions: CaptionFetchResult = input.info
     ? await deps.fetchCaptions(
       input.info.captionTracks,
@@ -77,7 +73,7 @@ export async function prepareCaptionedScan(
   }
 
   const sampleIntervalSec = scanIntervalForDuration(input.video.duration);
-  input.onStage('장면 스캔 중…');
+  input.onStage('stage_scan');
   const scan = await deps.scanVideo(
     input.video,
     sampleIntervalSec,

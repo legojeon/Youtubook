@@ -16,13 +16,13 @@ const info: PlayerInfo = {
 describe('extractionDurationError', () => {
   it('accepts the two-hour boundary and rejects a duration above it', () => {
     expect(extractionDurationError(false, 7200)).toBeNull();
-    expect(extractionDurationError(false, 7200.01)).toBe('최대 2시간 영상까지 지원합니다.');
+    expect(extractionDurationError(false, 7200.01)).toBe('error_tooLong');
   });
 
   it('keeps live and invalid durations on the existing message', () => {
-    expect(extractionDurationError(true, 60)).toBe('라이브/프리미어 영상은 지원하지 않습니다.');
+    expect(extractionDurationError(true, 60)).toBe('error_liveUnsupported');
     expect(extractionDurationError(false, Number.NaN))
-      .toBe('라이브/프리미어 영상은 지원하지 않습니다.');
+      .toBe('error_liveUnsupported');
   });
 });
 
@@ -53,9 +53,9 @@ describe('prepareCaptionedScan', () => {
     }, { fetchCaptions, scanVideo, detectScenes });
 
     expect(events).toEqual([
-      '자막 추출 중…',
+      'stage_captions',
       'captions:done',
-      '장면 스캔 중…',
+      'stage_scan',
       'scan:2',
     ]);
     expect(result.videoId).toBe('player-video');
@@ -101,7 +101,7 @@ describe('prepareCaptionedScan', () => {
     })).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(scanVideo).not.toHaveBeenCalled();
-    expect(stages).toEqual(['자막 추출 중…']);
+    expect(stages).toEqual(['stage_captions']);
   });
 
   it('uses a fetch-failed empty-cue fallback without calling caption fetch when info is null', async () => {

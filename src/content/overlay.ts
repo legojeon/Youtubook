@@ -1,3 +1,5 @@
+import { t } from '../ui/i18n';
+
 export interface Overlay {
   setStage(text: string): void;
   setProgress(done: number, total: number): void;
@@ -33,11 +35,11 @@ export function createOverlay(onCancel: () => void): Overlay {
     </style>
     <div class="box">
       <div class="row">
-        <span class="stage">준비 중…</span>
-        <button type="button">취소</button>
+        <span class="stage">${t('overlay_preparing')}</span>
+        <button type="button">${t('overlay_cancel')}</button>
       </div>
       <div class="bar"><div class="fill"></div></div>
-      <div class="hint">추출 중에는 이 탭을 화면에 유지해주세요.</div>
+      <div class="hint">${t('overlay_keepTab')}</div>
     </div>
   `;
   root.querySelector('button')!.addEventListener('click', onCancel);

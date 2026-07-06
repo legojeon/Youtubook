@@ -13,6 +13,7 @@ import {
 import { createOverlay } from './overlay';
 import { runRecapture } from './recapture';
 import { sendSessionImage, sendSessionStart } from './session-sender';
+import { t } from '../ui/i18n';
 
 let running = false;
 
@@ -66,17 +67,17 @@ async function runExtraction(): Promise<void> {
   const video = findVideo();
   try {
     if (!location.pathname.startsWith('/watch') || !video) {
-      throw new Error('유튜브 영상 페이지에서 실행해주세요.');
+      throw new Error(t('popup_notYoutube'));
     }
     const info = await getPlayerInfo().catch((err: unknown) => {
       console.warn('[youtubook] 브리지 호출 실패 — 자막 없이 진행합니다', err);
       return null;
     }); // 브리지 실패 → 자막 없이 진행 (폴백)
     const durationError = extractionDurationError(info?.isLive ?? false, video.duration);
-    if (durationError) throw new Error(durationError);
+    if (durationError) throw new Error(t(durationError));
 
-    overlay.setStage('광고 확인 중…');
-    await waitForNoAd(() => overlay.setStage('광고가 끝나면 시작합니다…'), ac.signal);
+    overlay.setStage(t('stage_ads'));
+    await waitForNoAd(() => overlay.setStage(t('stage_adsWaiting')), ac.signal);
 
     const state = savePlayerState(video);
     video.muted = true;
@@ -95,7 +96,7 @@ async function runExtraction(): Promise<void> {
         info,
         urlVideoId: new URLSearchParams(location.search).get('v'),
         onProgress: (done, total) => overlay.setProgress(done, total),
-        onStage: stage => overlay.setStage(stage),
+        onStage: stage => overlay.setStage(t(stage)),
         signal: ac.signal,
       });
 
@@ -121,7 +122,7 @@ async function runExtraction(): Promise<void> {
         ranges: det.ranges,
       }, scan.thumbs);
 
-      overlay.setStage('장면 캡처 중…');
+      overlay.setStage(t('stage_capture'));
       // 화질 최대 설정은 캡처 직전에만 — 스캔은 64px 비교라 화질 무관이고,
       // 스캔 전에 올리면 전체 스캔이 고화질 세그먼트 로딩을 기다리며 seek이 느려진다.
       await setMaxQuality().catch(() => {});
@@ -136,15 +137,15 @@ async function runExtraction(): Promise<void> {
     } finally {
       await restorePlayerState(video, state);
     }
-    if (!result?.ok) throw new Error(result?.reason ?? '세션 저장에 실패했습니다.');
+    if (!result?.ok) throw new Error(result?.reason ?? t('banner_saveFail'));
     overlay.remove();
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       overlay.remove();
     } else if (err instanceof DOMException && err.name === 'SecurityError') {
-      overlay.showError('보호된 영상이라 캡처할 수 없습니다.');
+      overlay.showError(t('overlay_errorProtected'));
     } else {
-      overlay.showError(err instanceof Error ? err.message : '추출에 실패했습니다.');
+      overlay.showError(err instanceof Error ? err.message : t('overlay_errorGeneric'));
     }
   } finally {
     document.removeEventListener('yt-navigate-start', onNavigate);
