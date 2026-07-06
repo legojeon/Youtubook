@@ -46,8 +46,20 @@ function seekOnce(video: HTMLVideoElement, target: number): Promise<void> {
   });
 }
 
+/**
+ * Clamp a requested seek time to a safe finite value. `video.duration` can be
+ * NaN during a mid-roll ad; without this guard `Math.min(t, NaN)` yields NaN,
+ * and `video.currentTime = NaN` throws and aborts the whole extraction.
+ */
+export function clampSeekTarget(t: number, duration: number): number {
+  if (!Number.isFinite(t)) return NaN;
+  const upper = Number.isFinite(duration) ? Math.max(0, duration - 0.1) : Math.max(0, t);
+  return Math.min(Math.max(t, 0), upper);
+}
+
 async function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
-  const target = Math.min(Math.max(t, 0), Math.max(0, video.duration - 0.1));
+  const target = clampSeekTarget(t, video.duration);
+  if (!Number.isFinite(target)) return; // bad/NaN target — skip instead of throwing
   if (Math.abs(video.currentTime - target) < 0.01) return;
   const started = performance.now();
   try {
