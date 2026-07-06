@@ -1,12 +1,13 @@
 import type { Cue } from './types';
 
-/** [startSec, endSec) 구간과 겹치는 큐. 경계에 걸친 큐는 양쪽 장면에 모두 포함된다(의도된 동작). */
-export function cuesForRange(cues: Cue[], startSec: number, endSec: number): Cue[] {
-  return cues.filter(c => c.startSec < endSec && c.endSec > startSec);
+/** 문장을 시작시각 기준으로 [startSec, endSec)에 배정한다. 한 문장은 시작이 속한 단 하나의
+ *  구간에만 들어가 경계에서 쪼개지거나 중복되지 않는다. */
+export function sentencesForRange(sentences: Cue[], startSec: number, endSec: number): Cue[] {
+  return sentences.filter(s => s.startSec >= startSec && s.startSec < endSec);
 }
 
-export function scriptForRange(cues: Cue[], startSec: number, endSec: number): string {
-  return cuesForRange(cues, startSec, endSec).map(c => c.text).join(' ');
+export function scriptFromSentences(sentences: Cue[], startSec: number, endSec: number): string {
+  return sentencesForRange(sentences, startSec, endSec).map(s => s.text).join(' ');
 }
 
 export interface ScriptSpan {
