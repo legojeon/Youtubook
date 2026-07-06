@@ -4,7 +4,8 @@ export default defineManifest({
   manifest_version: 3,
   name: 'Youtubook',
   version: '0.1.0',
-  description: '유튜브 영상을 그림책(PDF/PPTX)과 대본(TXT)으로 변환합니다.',
+  default_locale: 'en',
+  description: '__MSG_appDesc__',
   icons: {
     16: 'icons/icon16.png',
     32: 'icons/icon32.png',
