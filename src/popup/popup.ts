@@ -54,10 +54,13 @@ btn.addEventListener('click', async () => {
 
 cancelBtn.addEventListener('click', async () => {
   cancelBtn.disabled = true;
-  await chrome.runtime.sendMessage<Msg, MsgResponse>({ type: 'CANCEL_EXTRACTION' }).catch(() => {});
+  const res = await chrome.runtime
+    .sendMessage<Msg, MsgResponse>({ type: 'CANCEL_EXTRACTION' })
+    .catch(() => null);
   cancelBtn.hidden = true;
   cancelBtn.disabled = false;
-  status.textContent = t('popup_cancelled');
+  btn.hidden = false; // restore the normal UI so a new extraction can be started
+  status.textContent = res?.ok ? t('popup_cancelled') : t('popup_connectFail');
 });
 
 void refresh();
