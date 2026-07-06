@@ -11,11 +11,13 @@ import {
   scanMetaFields,
 } from './extraction-orchestration';
 import { createOverlay } from './overlay';
+import { createProgressReporter } from './progress-reporter';
 import { runRecapture } from './recapture';
 import { sendSessionImage, sendSessionStart } from './session-sender';
 import { t } from '../ui/i18n';
 
 let running = false;
+let currentAbort: (() => void) | null = null;
 
 chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r: MsgResponse) => void) => {
   if (typeof msg !== 'object' || msg === null || typeof (msg as { type?: unknown }).type !== 'string') {
@@ -49,6 +51,11 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r: M
     }).then(sendResponse);
     return true; // 비동기 응답
   }
+  if (message.type === 'CANCEL_EXTRACTION') {
+    currentAbort?.();
+    sendResponse({ ok: true });
+    return false;
+  }
   return false;
 });
 
@@ -61,9 +68,22 @@ const send = (m: Msg) => chrome.runtime.sendMessage<Msg, MsgResponse>(m);
 async function runExtraction(): Promise<void> {
   running = true;
   const ac = new AbortController();
+  currentAbort = () => ac.abort();
   const onNavigate = () => ac.abort();
   document.addEventListener('yt-navigate-start', onNavigate);
   const overlay = createOverlay(() => ac.abort());
+  // fire-and-forget: progress sends have no responder, so swallow the promise.
+  const reporter = createProgressReporter(m => { void send(m).catch(() => {}); });
+  let stageKey = 'overlay_preparing';
+  const setStage = (key: string) => {
+    stageKey = key;
+    overlay.setStage(t(key));
+    reporter.report(0, key, true); // stage change -> immediate report
+  };
+  const onProgress = (done: number, total: number) => {
+    overlay.setProgress(done, total);
+    reporter.report(total ? (done / total) * 100 : 0, stageKey);
+  };
   const video = findVideo();
   try {
     if (!location.pathname.startsWith('/watch') || !video) {
@@ -72,12 +92,12 @@ async function runExtraction(): Promise<void> {
     const info = await getPlayerInfo().catch((err: unknown) => {
       console.warn('[youtubook] 브리지 호출 실패 — 자막 없이 진행합니다', err);
       return null;
-    }); // 브리지 실패 → 자막 없이 진행 (폴백)
+    });
     const durationError = extractionDurationError(info?.isLive ?? false, video.duration);
     if (durationError) throw new Error(t(durationError));
 
-    overlay.setStage(t('stage_ads'));
-    await waitForNoAd(() => overlay.setStage(t('stage_adsWaiting')), ac.signal);
+    setStage('stage_ads');
+    await waitForNoAd(() => setStage('stage_adsWaiting'), ac.signal);
 
     const state = savePlayerState(video);
     video.muted = true;
@@ -95,8 +115,8 @@ async function runExtraction(): Promise<void> {
         video,
         info,
         urlVideoId: new URLSearchParams(location.search).get('v'),
-        onProgress: (done, total) => overlay.setProgress(done, total),
-        onStage: stage => overlay.setStage(t(stage)),
+        onProgress,
+        onStage: key => setStage(key),
         signal: ac.signal,
       });
 
@@ -105,7 +125,7 @@ async function runExtraction(): Promise<void> {
         videoId,
         title: info?.title ?? document.title.replace(/ - YouTube$/, ''),
         videoUrl: location.href,
-        tabId: -1, // SW가 sender.tab.id로 채움
+        tabId: -1,
         durationSec: video.duration,
         videoWidth: video.videoWidth,
         videoHeight: video.videoHeight,
@@ -122,14 +142,12 @@ async function runExtraction(): Promise<void> {
         ranges: det.ranges,
       }, scan.thumbs);
 
-      overlay.setStage(t('stage_capture'));
-      // 화질 최대 설정은 캡처 직전에만 — 스캔은 64px 비교라 화질 무관이고,
-      // 스캔 전에 올리면 전체 스캔이 고화질 세그먼트 로딩을 기다리며 seek이 느려진다.
+      setStage('stage_capture');
       await setMaxQuality().catch(() => {});
       await captureFrames(
         video,
         det.ranges.map(r => ({ key: repKey(r.repSec), repSec: r.repSec })),
-        (d, total) => overlay.setProgress(d, total),
+        (d, total) => onProgress(d, total),
         async (key, dataUrl) => { await sendSessionImage(send, meta.id, key, dataUrl); },
         ac.signal,
       );
@@ -139,16 +157,20 @@ async function runExtraction(): Promise<void> {
     }
     if (!result?.ok) throw new Error(result?.reason ?? t('banner_saveFail'));
     overlay.remove();
+    // Success: the SW commit path marks done (badge ✓ + notification). No ENDED needed.
   } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
+    const cancelled = err instanceof DOMException && err.name === 'AbortError';
+    if (cancelled) {
       overlay.remove();
     } else if (err instanceof DOMException && err.name === 'SecurityError') {
       overlay.showError(t('overlay_errorProtected'));
     } else {
       overlay.showError(err instanceof Error ? err.message : t('overlay_errorGeneric'));
     }
+    send({ type: 'EXTRACTION_ENDED', reason: cancelled ? 'cancelled' : 'error' }).catch(() => {});
   } finally {
     document.removeEventListener('yt-navigate-start', onNavigate);
+    currentAbort = null;
     running = false;
   }
 }
