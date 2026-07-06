@@ -8,6 +8,7 @@
   "popup_connectFail": { "message": "연결 실패 — 페이지를 새로고침한 뒤 다시 시도해주세요." },
   "results_loading": { "message": "불러오는 중…" },
   "results_notFound": { "message": "세션을 찾을 수 없습니다. 유튜브에서 다시 생성해주세요." },
+  "results_pageTitle": { "message": "Youtubook — 장면 선택" },
   "results_selectAll": { "message": "전체 선택" },
   "results_selectNone": { "message": "전체 해제" },
   "results_next": { "message": "다음 →" },

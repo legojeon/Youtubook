@@ -8,6 +8,7 @@
   "popup_connectFail": { "message": "Connection failed — refresh the page and try again." },
   "results_loading": { "message": "Loading…" },
   "results_notFound": { "message": "Session not found. Generate it again from YouTube." },
+  "results_pageTitle": { "message": "Youtubook — Select scenes" },
   "results_selectAll": { "message": "Select all" },
   "results_selectNone": { "message": "Clear all" },
   "results_next": { "message": "Next →" },
