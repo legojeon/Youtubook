@@ -7,6 +7,7 @@ import { getSession, updateSession } from '../storage/db';
 import { acceptedFrameMessage } from './accepted-frame';
 import { captionPresentationForMeta } from './caption-presentation';
 import { buildHtmlBook, buildPdf, buildPptx, buildTxt, downloadBlob, type BookData } from './exporters';
+import { resizeForBook } from './image-resize';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const grid = $('#grid');
@@ -223,13 +224,15 @@ void (async () => {
   $('#dl-html').addEventListener('click', e =>
     void busy(e.currentTarget as HTMLButtonElement, async () => {
       const scenes = getSelectedScenes();
+      // Re-encode frames smaller so the single-file HTML stays compact.
+      const images = await Promise.all(scenes.map(s => resizeForBook(s.image)));
       const bookData: BookData = {
         title: session.meta.title,
         videoUrl: session.meta.videoUrl,
         videoId: session.meta.videoId,
-        cover: { title: session.meta.title, image: scenes[0]?.image ?? '' },
-        scenes: scenes.map(s => ({
-          image: s.image,
+        cover: { title: session.meta.title, image: images[0] ?? '' },
+        scenes: scenes.map((s, i) => ({
+          image: images[i],
           script: s.script,
           deepLinkSec: s.range.repSec,
         })),
