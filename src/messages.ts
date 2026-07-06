@@ -18,9 +18,22 @@ export type Msg =
   | { type: 'CAPTURE_FRAMES'; sessionId: string; videoId: string; reps: RepRef[] }
   // 콘텐츠 → SW: 재캡처 업로드. SW 저장 성공 후에만 FRAME_ACCEPTED를 브로드캐스트한다.
   | { type: 'FRAME_UPLOAD'; sessionId: string; key: string; dataUrl: string }
-  | { type: 'FRAME_ACCEPTED'; sessionId: string; key: string; dataUrl: string };
+  | { type: 'FRAME_ACCEPTED'; sessionId: string; key: string; dataUrl: string }
+  // 콘텐츠 → SW: 추출 진행상황/종료 (배지·상태용)
+  | { type: 'EXTRACTION_PROGRESS'; percent: number; stage: string }
+  | { type: 'EXTRACTION_ENDED'; reason: 'cancelled' | 'error' }
+  // 팝업 → SW: 상태 조회 / 취소. CANCEL_EXTRACTION은 SW → 콘텐츠로도 재사용된다.
+  | { type: 'GET_EXTRACTION_STATUS' }
+  | { type: 'CANCEL_EXTRACTION' };
 
 export interface MsgResponse {
   ok: boolean;
   reason?: string; // 'tab-closed' | 'wrong-video' | 기타 오류 설명
+}
+
+/** GET_EXTRACTION_STATUS 응답 (MsgResponse와 별개). stage는 i18n 키. */
+export interface ExtractionStatus {
+  running: boolean;
+  percent: number;
+  stage: string;
 }
