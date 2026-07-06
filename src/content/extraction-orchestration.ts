@@ -22,6 +22,7 @@ export function scanMetaFields(
     sampleIntervalSec,
     captionsAvailable: captions.status === 'available',
     captionStatus: captions.status,
+    captionLang: captions.status === 'available' ? captions.lang : undefined,
   } as const;
 }
 

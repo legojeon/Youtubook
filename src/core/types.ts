@@ -25,6 +25,7 @@ export interface SessionMeta {
   sensitivity: number; // 1~10
   captionsAvailable: boolean;
   captionStatus?: CaptionStatus;
+  captionLang?: string; // 선택된 자막 트랙 언어 (문장 재조립용). 없으면 기본 locale 사용
   truncated: boolean; // 장면 300개 상한 초과 여부
   createdAt: number;
 }
