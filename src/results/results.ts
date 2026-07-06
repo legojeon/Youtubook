@@ -224,8 +224,9 @@ void (async () => {
   $('#dl-html').addEventListener('click', e =>
     void busy(e.currentTarget as HTMLButtonElement, async () => {
       const scenes = getSelectedScenes();
-      // Re-encode frames smaller so the single-file HTML stays compact.
-      const images = await Promise.all(scenes.map(s => resizeForBook(s.image)));
+      // Full-resolution WebP by default; the toggle downscales for a smaller file.
+      const downscale = ($('#book-downscale') as HTMLInputElement).checked;
+      const images = await Promise.all(scenes.map(s => resizeForBook(s.image, downscale)));
       const bookData: BookData = {
         title: session.meta.title,
         videoUrl: session.meta.videoUrl,

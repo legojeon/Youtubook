@@ -1,8 +1,19 @@
-// Book export re-encodes scene/cover images smaller than the captured
-// full-resolution frames to keep the single-file HTML from ballooning.
-export const BOOK_IMAGE_MAX_EDGE = 1280;
+// Book export re-encodes scene/cover images to WebP. The default keeps full
+// resolution (WebP is ~30% smaller than the captured JPEG with no visible loss);
+// the optional downscale trades resolution for a much smaller single-file HTML.
 export const BOOK_IMAGE_TYPE = 'image/webp';
-export const BOOK_IMAGE_QUALITY = 0.8;
+export const BOOK_FULL_QUALITY = 0.85;
+export const BOOK_SMALL_MAX_EDGE = 1280;
+export const BOOK_SMALL_QUALITY = 0.8;
+
+/** Re-encode parameters for the book: full-resolution WebP unless downscaling. */
+export function bookImageParams(
+  downscale: boolean,
+): { maxEdge: number; type: string; quality: number } {
+  return downscale
+    ? { maxEdge: BOOK_SMALL_MAX_EDGE, type: BOOK_IMAGE_TYPE, quality: BOOK_SMALL_QUALITY }
+    : { maxEdge: Infinity, type: BOOK_IMAGE_TYPE, quality: BOOK_FULL_QUALITY };
+}
 
 /** Downscale (never upscale) so the longest edge fits `maxEdge`, keeping aspect. */
 export function fitDimensions(
@@ -60,7 +71,11 @@ export async function reencodeImage(
   }
 }
 
-/** Re-encode a captured frame for the HTML book (≤1280px, WebP q0.8). */
-export function resizeForBook(dataUrl: string): Promise<string> {
-  return reencodeImage(dataUrl, BOOK_IMAGE_MAX_EDGE, BOOK_IMAGE_TYPE, BOOK_IMAGE_QUALITY);
+/**
+ * Re-encode a captured frame for the HTML book. Full-resolution WebP by
+ * default; `downscale` caps the longest edge at 1280px for a smaller file.
+ */
+export function resizeForBook(dataUrl: string, downscale: boolean): Promise<string> {
+  const { maxEdge, type, quality } = bookImageParams(downscale);
+  return reencodeImage(dataUrl, maxEdge, type, quality);
 }
