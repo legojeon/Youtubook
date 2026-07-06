@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookImageParams, fitDimensions } from './image-resize';
+import { bookImageParams, fitDimensions, resizeForSlides } from './image-resize';
 
 describe('fitDimensions', () => {
   it('downscales a landscape frame so its longest edge fits, preserving aspect', () => {
@@ -36,5 +36,12 @@ describe('bookImageParams', () => {
     const params = bookImageParams(true);
     expect(params.type).toBe('image/webp');
     expect(params.maxEdge).toBe(1280);
+  });
+});
+
+describe('resizeForSlides', () => {
+  it('keeps the original full-resolution JPEG untouched when not downscaling', async () => {
+    const url = 'data:image/jpeg;base64,/9j/AAAA/9k=';
+    await expect(resizeForSlides(url, false)).resolves.toBe(url);
   });
 });

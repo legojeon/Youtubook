@@ -7,7 +7,7 @@ import { getSession, updateSession } from '../storage/db';
 import { acceptedFrameMessage } from './accepted-frame';
 import { captionPresentationForMeta } from './caption-presentation';
 import { buildHtmlBook, buildPdf, buildPptx, buildTxt, downloadBlob, type BookData } from './exporters';
-import { resizeForBook } from './image-resize';
+import { resizeForBook, resizeForSlides } from './image-resize';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const grid = $('#grid');
@@ -197,19 +197,24 @@ void (async () => {
   };
   const base = () => sanitizeFilename(session.meta.title);
   const { videoWidth: vw, videoHeight: vh } = session.meta;
+  // Global export option: downscale embedded frames to shrink every download.
+  const wantsDownscale = () => ($('#downscale-images') as HTMLInputElement).checked;
 
   $('#dl-pdf').addEventListener('click', e =>
     void busy(e.currentTarget as HTMLButtonElement, async () => {
       const scenes = getSelectedScenes();
-      downloadBlob(buildPdf(scenes.map(s => s.image), vw, vh), `${base()}_scenes.pdf`);
+      const images = await Promise.all(scenes.map(s => resizeForSlides(s.image, wantsDownscale())));
+      downloadBlob(buildPdf(images, vw, vh), `${base()}_scenes.pdf`);
     }));
   $('#dl-pptx').addEventListener('click', e =>
     void busy(e.currentTarget as HTMLButtonElement, async () => {
       const scenes = getSelectedScenes();
-      downloadBlob(
-        await buildPptx(scenes.map(s => ({ image: s.image, notes: s.script })), vw, vh),
-        `${base()}_scenes.pptx`,
-      );
+      const downscale = wantsDownscale();
+      const slides = await Promise.all(scenes.map(async s => ({
+        image: await resizeForSlides(s.image, downscale),
+        notes: s.script,
+      })));
+      downloadBlob(await buildPptx(slides, vw, vh), `${base()}_scenes.pptx`);
     }));
   const txtBtn = $('#dl-txt') as HTMLButtonElement;
   const captionPresentation = captionPresentationForMeta(session.meta);
@@ -224,9 +229,8 @@ void (async () => {
   $('#dl-html').addEventListener('click', e =>
     void busy(e.currentTarget as HTMLButtonElement, async () => {
       const scenes = getSelectedScenes();
-      // Full-resolution WebP by default; the toggle downscales for a smaller file.
-      const downscale = ($('#book-downscale') as HTMLInputElement).checked;
-      const images = await Promise.all(scenes.map(s => resizeForBook(s.image, downscale)));
+      // Full-resolution WebP by default; the shared toggle downscales for a smaller file.
+      const images = await Promise.all(scenes.map(s => resizeForBook(s.image, wantsDownscale())));
       const bookData: BookData = {
         title: session.meta.title,
         videoUrl: session.meta.videoUrl,

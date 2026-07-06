@@ -21,4 +21,4 @@ button.primary:disabled { background: #999; border-color: #999; cursor: default;
 .card .script:empty::before { content: '(이 구간 대본 없음)'; color: #aaa; }
 #export-panel { padding: 20px; }
 .export-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
-.book-option { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 0.9em; color: #555; }
+.downscale-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 0.9em; color: #555; white-space: nowrap; }

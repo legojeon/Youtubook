@@ -16,6 +16,10 @@
       <span class="spacer"></span>
       <label>민감도 <input type="range" id="sensitivity" min="1" max="10" step="1">
         <span id="sensitivity-value"></span></label>
+      <label class="downscale-toggle" title="PDF·PPTX·웹페이지 사진을 1280px로 줄여 파일 용량을 낮춥니다. 크게 보거나 인쇄·발표할 땐 끄세요.">
+        <input type="checkbox" id="downscale-images">
+        사진 용량 줄이기 (해상도↓)
+      </label>
       <button id="redetect">재검출</button>
       <button id="select-all">전체 선택</button>
       <button id="select-none">전체 해제</button>
@@ -33,10 +37,6 @@
       <button id="dl-txt" class="primary">대본 TXT</button>
       <button id="dl-html" class="primary">웹페이지 (책처럼 읽기)</button>
     </div>
-    <label class="book-option">
-      <input type="checkbox" id="book-downscale">
-      웹페이지 사진 해상도 줄여 용량 낮추기 (확대 시 덜 선명)
-    </label>
   </section>
   <script type="module" src="./results.ts"></script>
 </body>

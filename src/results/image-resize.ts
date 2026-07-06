@@ -5,6 +5,9 @@ export const BOOK_IMAGE_TYPE = 'image/webp';
 export const BOOK_FULL_QUALITY = 0.85;
 export const BOOK_SMALL_MAX_EDGE = 1280;
 export const BOOK_SMALL_QUALITY = 0.8;
+// PDF/PPTX embed JPEG (jsPDF/PowerPoint don't reliably take WebP), so the slide
+// downscale re-encodes to JPEG at the same size cap.
+export const SLIDE_IMAGE_TYPE = 'image/jpeg';
 
 /** Re-encode parameters for the book: full-resolution WebP unless downscaling. */
 export function bookImageParams(
@@ -78,4 +81,14 @@ export async function reencodeImage(
 export function resizeForBook(dataUrl: string, downscale: boolean): Promise<string> {
   const { maxEdge, type, quality } = bookImageParams(downscale);
   return reencodeImage(dataUrl, maxEdge, type, quality);
+}
+
+/**
+ * PDF/PPTX frame. When not downscaling, the captured full-resolution JPEG is
+ * kept as-is (no re-encode). When downscaling, it is re-encoded to JPEG capped
+ * at 1280px — those formats can't take WebP, so there is no full-res win here.
+ */
+export function resizeForSlides(dataUrl: string, downscale: boolean): Promise<string> {
+  if (!downscale) return Promise.resolve(dataUrl);
+  return reencodeImage(dataUrl, BOOK_SMALL_MAX_EDGE, SLIDE_IMAGE_TYPE, BOOK_SMALL_QUALITY);
 }
