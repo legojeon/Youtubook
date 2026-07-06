@@ -211,7 +211,7 @@ export async function fetchCaptions(
   let lastParseFailure: CaptionFetchResult | null = null;
   if (directUrl) {
     const direct = await fetchJson3(directUrl, deps.requestText, signal, durationSec);
-    if (direct.status === 'available') return direct;
+    if (direct.status === 'available') return { ...direct, lang: track.languageCode };
     if (direct.status === 'too-many-events') return failed('too-many-events');
     if (direct.status === 'parse-error') lastParseFailure = failed('parse-error');
   }
@@ -232,7 +232,7 @@ export async function fetchCaptions(
   const cutoff = prior?.startTime ?? lookupStartedAt;
   if (prior) {
     const priorResult = await fetchObservedJson3(prior, videoId, deps, signal, durationSec);
-    if (priorResult.status === 'available') return priorResult;
+    if (priorResult.status === 'available') return { ...priorResult, lang: track.languageCode };
     if (priorResult.status === 'too-many-events') {
       return observedFetchResult(priorResult);
     }
@@ -288,7 +288,7 @@ export async function fetchCaptions(
       if (!restored) result = failed('player-timeout');
     }
   }
-  if (result.status === 'available'
-    || (result.status === 'fetch-failed' && result.reason === 'too-many-events')) return result;
+  if (result.status === 'available') return { ...result, lang: track.languageCode };
+  if (result.status === 'fetch-failed' && result.reason === 'too-many-events') return result;
   return lastParseFailure ?? result;
 }
