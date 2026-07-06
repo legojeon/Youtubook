@@ -66,7 +66,10 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
     case 'CANCEL_EXTRACTION': {
       const tabId = extraction.getTabId();
       if (tabId >= 0) {
-        void chrome.tabs.sendMessage(tabId, { type: 'CANCEL_EXTRACTION' } as Msg);
+        chrome.tabs.sendMessage(tabId, { type: 'CANCEL_EXTRACTION' } as Msg)
+          .catch(() => extraction.onEnded()); // tab gone/unreachable → converge anyway
+      } else {
+        extraction.onEnded(); // nothing reachable to cancel — clear any stale state
       }
       sendResponse({ ok: true });
       return true;
@@ -79,4 +82,10 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
 // Clicking the completion notification focuses the results tab (notificationId === sessionId).
 chrome.notifications.onClicked.addListener(sessionId => {
   void openOrFocusResults(sessionId, resultsUrl, tabDeps, false);
+});
+
+// If the source tab closes mid-extraction, its content script dies without
+// sending EXTRACTION_ENDED — clear the badge/status so it doesn't strand.
+chrome.tabs.onRemoved.addListener(tabId => {
+  if (tabId === extraction.getTabId()) extraction.onEnded();
 });
