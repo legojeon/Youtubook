@@ -18,7 +18,7 @@ h1 { font-size:20px; font-weight:700; letter-spacing:-0.5px; margin:0; color:var
 .card.selected { border-color:var(--primary); }
 .card img { width:100%; aspect-ratio:16/9; object-fit:contain; background:#000; display:block; }
 .card .meta { display:flex; align-items:center; gap:8px; padding:8px 12px 0; color:var(--mute); font-size:12px; }
-.card .script { padding:6px 12px 12px; font-size:13px; color:var(--body); line-height:1.5; }
+.card .script { padding:6px 12px 12px; font-size:13px; color:var(--body); line-height:1.5; height:84px; overflow-y:auto; }
 .card .script:empty::before { content:'(이 구간 대본 없음)'; color:var(--ash); }
 
 #export-panel { background:var(--canvas); border-top:1px solid var(--hairline); margin-top:16px; padding:24px; }
