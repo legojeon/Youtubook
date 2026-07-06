@@ -22,6 +22,7 @@ export function createOverlay(onCancel: () => void): Overlay {
       .stage { font-weight: 600; }
       .hint { color: #bbb; font-size: 11px; margin-top: 4px; }
       .bar { height: 6px; background: #444; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+      /* accent mirrors theme.css --primary (#e60023) / --r-md (16px); shadow DOM can't link theme.css */
       .fill { height: 100%; width: 0%; background: #e60023; transition: width .2s; }
       .error { color: #ff6b6b; font-weight: 600; }
       button {
