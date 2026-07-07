@@ -52,7 +52,7 @@ export async function scanVideoStream(
   const [thumbCv, thumbCtx] = makeCanvas(thumbW, thumbH);
   const [, diffCtx] = makeCanvas(diffW, diffH);
 
-  const binner = createSampleBinner(sampleIntervalSec);
+  const binner = createSampleBinner(sampleIntervalSec, MAX_SCAN_SAMPLES);
   let prev: ImageData | null = null;
 
   const isEnd = () => video.ended

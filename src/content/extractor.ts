@@ -212,13 +212,15 @@ export interface PlayerState {
   currentTime: number;
   paused: boolean;
   muted: boolean;
+  playbackRate: number;
 }
 
 export function savePlayerState(v: HTMLVideoElement): PlayerState {
-  return { currentTime: v.currentTime, paused: v.paused, muted: v.muted };
+  return { currentTime: v.currentTime, paused: v.paused, muted: v.muted, playbackRate: v.playbackRate };
 }
 
 export async function restorePlayerState(v: HTMLVideoElement, s: PlayerState): Promise<void> {
+  v.playbackRate = s.playbackRate;
   await seekTo(v, s.currentTime).catch(() => {});
   v.muted = s.muted;
   if (!s.paused) await v.play().catch(() => {});
