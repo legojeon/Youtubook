@@ -1,6 +1,7 @@
 import { frameContentScore } from '../core/diff';
 import { MAX_SCAN_SAMPLES } from '../core/limits';
 import type { RepRef } from '../messages';
+import { canUseStreamCapture, scanVideoStream } from './capture-scan';
 
 export function buildSampleTimes(durationSec: number, intervalSec: number): number[] {
   const times: number[] = [];
@@ -124,7 +125,7 @@ export interface ScanResult {
   thumbs: string[];
 }
 
-export async function scanVideo(
+export async function scanVideoSeek(
   video: HTMLVideoElement,
   intervalSec: number,
   onProgress: (done: number, total: number) => void,
@@ -155,6 +156,38 @@ export async function scanVideo(
     onProgress(i + 1, times.length);
   }
   return { scores, thumbs };
+}
+
+export interface ScanDispatchDeps {
+  canUseStreamCapture: () => boolean;
+  scanVideoStream: typeof scanVideoStream;
+  scanVideoSeek: typeof scanVideoSeek;
+}
+
+const browserScanDeps: ScanDispatchDeps = { canUseStreamCapture, scanVideoStream, scanVideoSeek };
+
+/**
+ * 장면 스캔 디스패처. captureStream 재생-통과(백그라운드 가능, 조밀)를 우선 시도하고,
+ * 미지원이거나 (취소가 아닌) 실패 시 기존 seek 스캔으로 폴백한다.
+ */
+export async function scanVideo(
+  video: HTMLVideoElement,
+  intervalSec: number,
+  onProgress: (done: number, total: number) => void,
+  signal: AbortSignal,
+  deps: ScanDispatchDeps = browserScanDeps,
+): Promise<ScanResult> {
+  if (signal.aborted) throw aborted();
+  if (deps.canUseStreamCapture()) {
+    try {
+      return await deps.scanVideoStream(video, intervalSec, onProgress, signal);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err; // 취소는 폴백 안 함
+      console.warn('[youtubook] 스트림 스캔 실패 — seek 스캔으로 폴백', err);
+      video.pause(); // seek 스캔은 일시정지 상태를 가정
+    }
+  }
+  return deps.scanVideoSeek(video, intervalSec, onProgress, signal);
 }
 
 export async function captureFrames(
