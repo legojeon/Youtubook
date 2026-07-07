@@ -1,45 +1,78 @@
 # Youtubook
 
-유튜브 동화책 영상을 **그림책(PDF/PPTX) + 대본(TXT)** 으로 변환하는 크롬 확장 프로그램.
+**English** · [한국어](README.ko.md)
 
-영상 애니메이션 대신 정지 장면을 아이에게 그림책처럼 보여주고, 부모·교사가 대본을
-직접 읽어줄 수 있습니다. 동화책 영상 외의 일반 유튜브 영상에도 사용할 수 있습니다.
+Turn any YouTube video into a printable **picture book** — scene images paired with the narration — entirely in your browser.
 
-- 장면 자동 검출 (프레임 색상 차이 기반 2-패스, 민감도 조절 + 즉시 재검출)
-- 대본은 유튜브 자막(수동 우선, 자동 생성 폴백)에서 추출
-- PDF: 장면당 1페이지 이미지 / PPTX: 발표자 노트에 대본 포함 / TXT: 장면별 대본
-- 100% 브라우저 내 동작 — 서버·외부 API·Python 불필요
+<table>
+  <tr>
+    <td width="47%"><img src="public/assets/youtube-view.png" alt="A YouTube video playing"></td>
+    <td width="6%" align="center"><h3>➡️</h3></td>
+    <td width="47%"><img src="public/assets/html-view.png" alt="The generated picture book: each scene's image beside its narration"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Any YouTube video</b></td>
+    <td></td>
+    <td align="center"><b>A picture book you can read &amp; print</b></td>
+  </tr>
+</table>
 
-## 설치
+Youtubook detects the distinct scenes in a video, pairs each with the spoken narration from the captions, and exports a picture book (PDF / PPTX / HTML) plus a plain-text script. Made for turning story videos into books a parent or teacher can read aloud — but it works on any YouTube video (lectures, talks, tutorials).
 
-1. 릴리스 zip을 풀거나 `npm install && npm run build` 로 `dist/` 를 생성
-2. Chrome `chrome://extensions` → 개발자 모드 켜기 → **압축해제된 확장 프로그램 로드** → `dist/` 선택
+Everything runs **100% in your browser** — no server, no external API, no Python.
 
-요구사항: Chrome 111+
+## Features
 
-## 사용법
+- **Automatic scene detection** — HSV color-difference with an adaptive, PySceneDetect-style threshold; a sensitivity slider re-detects instantly.
+- **Narration from captions** — pulls the script from YouTube captions (manual preferred, auto-generated fallback) and aligns it to each scene.
+- **Multiple exports** — PDF (one scene per page), PPTX (script in the speaker notes), a self-contained **HTML book** (each scene deep-links back to that moment in the video), and TXT (script only).
+- **Runs in the background** — switch to other tabs while it works; a notification tells you when it's done.
+- **Bilingual UI** — English and Korean, following your browser language.
 
-1. 유튜브 영상 페이지에서 확장 아이콘 클릭 → **그림책 생성**
-2. 추출 중에는 해당 탭을 화면에 유지 (10분 영상 기준 1~2분)
-3. 결과 탭에서 원하는 장면을 복수 선택 (민감도 슬라이더로 재검출 가능)
-4. **다음** → PDF / PPTX / TXT 다운로드
+## How it works
 
-대본은 선택한 장면들이 영상 전체 타임라인을 나눠 갖습니다 — 각 장면이 "다음 선택
-장면 전까지"의 내레이션을 모두 포함하므로 일부 장면만 골라도 대본이 유실되지 않습니다.
+1. Open a YouTube video, click the Youtubook icon → **Create picture book**.
+2. Youtubook scans the video, detects scene cuts, and captures one frame per scene.
+3. On the results page, pick the scenes you want — the sensitivity slider re-detects, and each card shows its narration.
 
-## 개발
+<p align="center">
+  <img src="public/assets/pick-scene.png" width="85%" alt="Youtubook results page: a grid of detected scenes with narration, a sensitivity slider, and export options">
+</p>
+
+4. **Next** → download as PDF / PPTX / HTML / TXT.
+
+The script follows your selected scenes: each chosen scene carries all narration up to the next selected scene, so picking only some scenes never drops any of the story.
+
+## Install
+
+1. Grab a release zip, or build it yourself: `npm install && npm run build` produces `dist/`.
+2. Chrome → `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/`.
+
+Requires Chrome 111+.
+
+## Usage
+
+- Extraction runs on the video's tab, but you can **switch to other tabs** while it works — you'll get a notification when the book is ready. Just don't close the tab or navigate it to another video.
+- Roughly 1–3 minutes for a 10-minute video, depending on your connection.
+- On the results page, use the sensitivity slider to split scenes more or less finely, then re-detect.
+
+## Development
 
 ```bash
 npm install
-npm run build   # 타입체크 + dist/ 빌드
-npm test        # 단위 테스트 (Vitest)
-npm run zip     # 웹스토어 업로드용 zip 생성
+npm run build   # type-check + build to dist/
+npm test        # unit tests (Vitest)
+npm run zip     # build + zip for the Chrome Web Store
 ```
 
-스택: TypeScript · Vite + @crxjs/vite-plugin · jsPDF · PptxGenJS
+Stack: TypeScript · Vite + @crxjs/vite-plugin · jsPDF · PptxGenJS
 
-## 제한사항
+## Privacy
 
-- 자막이 없는 영상은 장면만 추출됩니다 (대본 TXT 미제공)
-- 라이브/프리미어/DRM 영상은 지원하지 않습니다
-- 유튜브 페이지 구조 변경 시 일부 기능(자막 추출 등)이 영향을 받을 수 있습니다
+Youtubook processes everything locally in your browser — video frames, captions, and generated files never leave your machine. See [PRIVACY.md](PRIVACY.md).
+
+## Limitations
+
+- Videos without captions produce scene images only (no script / TXT).
+- Live streams, premieres, and DRM-protected videos aren't supported.
+- YouTube page changes can affect some features (e.g. caption extraction).
