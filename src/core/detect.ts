@@ -25,7 +25,12 @@ export const DEFAULT_DETECT = {
 // average AND above a minimum absolute value. This suppresses false cuts during
 // sustained motion (the local average rises with it) while still catching real
 // spikes — including from a near-zero baseline (static storybook scenes).
-const WINDOW_WIDTH = 2; // samples on each side used as the local baseline
+// Local-baseline half-window, expressed in TIME. It is converted to a sample
+// count per call (round(WINDOW_SECONDS / sampleIntervalSec)) so the baseline always
+// spans ~2s of video regardless of scan density. Fixing this in samples would let a
+// denser scan (0.25s) silently shrink the window to ~0.5s, destabilising the local
+// average and mis-tuning the sensitivity thresholds (calibrated for a ~2s baseline).
+const WINDOW_SECONDS = 2;
 const EPS = 1e-5;
 const MAX_RATIO = 255;
 
@@ -44,6 +49,8 @@ export function sensitivityToParams(
 export function detectScenes(scores: number[], opts: DetectOptions): DetectResult {
   const { ratioThreshold, minContentVal } = sensitivityToParams(opts.sensitivity);
   const minGap = Math.max(1, Math.round(opts.minSceneSec / opts.sampleIntervalSec));
+  // Baseline half-window in samples, held at ~WINDOW_SECONDS of time across densities.
+  const windowWidth = Math.max(1, Math.round(WINDOW_SECONDS / (opts.sampleIntervalSec || 1)));
   const n = scores.length;
 
   const cuts: { index: number; strength: number }[] = [];
@@ -54,7 +61,7 @@ export function detectScenes(scores: number[], opts: DetectOptions): DetectResul
     // Local baseline: average of the neighbouring samples (excluding i itself).
     let sum = 0;
     let cnt = 0;
-    for (let j = Math.max(1, i - WINDOW_WIDTH); j <= Math.min(n - 1, i + WINDOW_WIDTH); j++) {
+    for (let j = Math.max(1, i - windowWidth); j <= Math.min(n - 1, i + windowWidth); j++) {
       if (j === i) continue;
       sum += scores[j];
       cnt++;
