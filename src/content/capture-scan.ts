@@ -16,6 +16,7 @@ const SCAN_PLAYBACK_RATE = 6;
 // currentTime이 한 프레임에 크게 점프해도 끝 전에 멈추도록 넉넉히 잡는다.
 const END_EPSILON_SEC = 1.0;
 const MAX_REACQUIRE = 8;        // 광고 등으로 트랙 재획득을 반복할 상한(무한 루프 방지)
+const STALL_TIMEOUT_MS = 10_000; // 프레임이 이 시간 안에 안 오면 스톨(버퍼링/CDN)로 보고 throw → seek 폴백
 
 /** captureStream + MediaStreamTrackProcessor 지원 여부(숨긴 탭 프레임 캡처의 전제). `in` 연산자로
  *  캐스트 없이 실제 존재를 확인한다(jsdom에는 둘 다 없어 false). */
@@ -27,6 +28,19 @@ export function canUseStreamCapture(): boolean {
 
 function aborted(): DOMException {
   return new DOMException('사용자가 취소했습니다', 'AbortError');
+}
+
+/** reader.read()에 스톨 타임아웃을 씌운다. stallMs 안에 프레임이 안 오면(버퍼링/CDN 정지) reject
+ *  → scanVideoStream이 throw → 디스패처가 (취소가 아니므로) seek 스캔으로 폴백한다. */
+function readFrame(
+  reader: ReadableStreamDefaultReader<VideoFrame>,
+  stallMs: number,
+): Promise<ReadableStreamReadResult<VideoFrame>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stall = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('스트림 스캔 스톨 — 프레임 미수신(버퍼링)')), stallMs);
+  });
+  return Promise.race([reader.read(), stall]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -61,6 +75,10 @@ export async function scanVideoStream(
   const isEnd = () => video.ended
     || (Number.isFinite(duration) && video.currentTime >= duration - END_EPSILON_SEC);
 
+  // 스캔 동안 loop=true — 영상이 끝에 닿아도 ended를 내지 않고 되돌아가므로 YouTube 자동재생이
+  // (프레임 드롭·타이밍과 무관하게) 원천 차단된다. 자동재생 이동은 세션 영상 불일치를 유발한다.
+  const origLoop = video.loop;
+  video.loop = true;
   video.playbackRate = SCAN_PLAYBACK_RATE;
   try {
     video.currentTime = 0;
@@ -87,7 +105,7 @@ export async function scanVideoStream(
 
       try {
         for (;;) {
-          const result = await reader.read();
+          const result = await readFrame(reader, STALL_TIMEOUT_MS);
           if (result.done) break; // 트랙 종료(영상 끝 또는 광고/소스 교체)
           const frame = result.value; // done=false로 판별되어 VideoFrame으로 좁혀진다
           if (signal.aborted) { frame.close(); throw aborted(); }
@@ -117,9 +135,12 @@ export async function scanVideoStream(
       await waitForNoAd(() => { /* 진행 표시는 상위 오버레이가 담당 */ }, signal);
     }
   } finally {
-    // 어떤 종료 경로(정상·폴백·상한·취소)에서도 영상을 재생 상태로 남기지 않는다 —
-    // 끝까지 재생돼 ended가 나면 YouTube 자동재생이 다음 영상으로 넘어가 추출을 self-abort시킨다.
+    // 어떤 종료 경로(정상·폴백·상한·취소)에서도 영상을 재생 상태로 남기지 않고, 6배속·loop도 원복한다.
+    // (playbackRate를 여기서 1로 되돌려 이후 캡처 패스가 6배속으로 끝까지 달리는 것도 막는다 —
+    //  최종 사용자 상태 복원은 상위 restorePlayerState가 담당.)
     video.pause();
+    video.playbackRate = 1;
+    video.loop = origLoop;
   }
 
   binner.finish();
