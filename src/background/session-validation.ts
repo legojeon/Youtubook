@@ -13,6 +13,7 @@ const MAX_TITLE_CHARS = 1_000;
 const MAX_VIDEO_URL_CHARS = 2_048;
 const MAX_VIDEO_DIMENSION = 16_384;
 const MAX_SCENE_RANGES = 300;
+const MAX_CAPTION_LANG_CHARS = 64;
 export { MAX_TOTAL_CUE_TEXT_CHARS } from '../core/limits';
 export const MAX_SESSION_BEGIN_CHARS = 2 * 1024 * 1024;
 const CAPTION_STATUSES = new Set(['available', 'absent', 'fetch-failed']);
@@ -89,6 +90,9 @@ function validateMeta(value: unknown): asserts value is SessionMeta {
     && (typeof meta.captionStatus !== 'string' || !CAPTION_STATUSES.has(meta.captionStatus))) {
     throw new Error('Caption status is invalid.');
   }
+  if (meta.captionLang !== undefined) {
+    boundedString(meta.captionLang, 'Caption language', MAX_CAPTION_LANG_CHARS);
+  }
   if (typeof meta.truncated !== 'boolean') throw new Error('Truncated status must be boolean.');
   safeInteger(meta.createdAt, 'Creation timestamp', 0, Number.MAX_SAFE_INTEGER);
 }
@@ -160,6 +164,9 @@ export function canonicalizeSessionBegin(
       ...(message.meta.captionStatus === undefined
         ? {}
         : { captionStatus: message.meta.captionStatus }),
+      ...(message.meta.captionLang === undefined
+        ? {}
+        : { captionLang: message.meta.captionLang }),
       truncated: message.meta.truncated,
       createdAt: message.meta.createdAt,
     },

@@ -78,6 +78,23 @@ describe('extraction protocol persistence', () => {
     expect(await getPendingFrames('session-1')).toEqual({});
   });
 
+  it('captionLang을 보존해 저장한다', async () => {
+    const worker = createSessionMessageHandler(deps());
+    const withLang = { ...begin, meta: { ...begin.meta, captionLang: 'en' } };
+    expect(await worker(withLang, youtubeSender())).toEqual({ ok: true });
+    expect(await worker({
+      type: 'SESSION_THUMBS_CHUNK', sessionId: 'session-1', startIndex: 0, thumbs: ['thumb'],
+    }, youtubeSender())).toEqual({ ok: true });
+    expect(await worker({
+      type: 'SESSION_IMAGE', sessionId: 'session-1', key: '0.50',
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+    }, youtubeSender())).toEqual({ ok: true });
+    const committed = await worker({ type: 'SESSION_COMMIT', sessionId: 'session-1' }, youtubeSender());
+    expect(committed).toEqual({ ok: true });
+    const stored = await getSession('session-1');
+    expect(stored?.meta.captionLang).toBe('en');
+  });
+
   it('keeps an incomplete restarted session pending when commit fails', async () => {
     expect(await createSessionMessageHandler(deps())(begin, youtubeSender())).toEqual({ ok: true });
 
@@ -113,6 +130,7 @@ describe('extraction protocol persistence', () => {
   it.each([
     ['missing ID', { meta: { ...begin.meta, id: '' } }],
     ['malformed metadata URL', { meta: { ...begin.meta, videoUrl: 'not a URL' } }],
+    ['caption language too long', { meta: { ...begin.meta, captionLang: 'x'.repeat(65) } }],
   ])('rejects begin with %s without mutating pending data', async (_label, patch) => {
     const response = await createSessionMessageHandler(deps())(
       { ...begin, ...patch } as typeof begin,
@@ -283,6 +301,27 @@ describe('sender and session validation', () => {
 
     expect(response.ok).toBe(false);
     expect(response.reason).toBeTruthy();
+    expect(await getPendingSession('session-1')).toBeNull();
+  });
+
+  it('accepts a SPA sender whose frame url lags but whose tab url is the live /watch page', async () => {
+    // Content script survives YouTube's pushState navigation: sender.url is the
+    // stale committed doc url (home), sender.tab.url is the live /watch url.
+    const spaSender = youtubeSender({
+      url: 'https://www.youtube.com/',
+      tab: { id: 7, url: 'https://www.youtube.com/watch?v=video-1' } as chrome.tabs.Tab,
+    });
+    expect((await createSessionMessageHandler(deps())(begin, spaSender)).ok).toBe(true);
+    expect(await getPendingSession('session-1')).not.toBeNull();
+  });
+
+  it('rejects when neither the frame url nor the tab url is a /watch page', async () => {
+    const nonWatch = youtubeSender({
+      url: 'https://www.youtube.com/',
+      tab: { id: 7, url: 'https://www.youtube.com/feed/subscriptions' } as chrome.tabs.Tab,
+    });
+    const response = await createSessionMessageHandler(deps())(begin, nonWatch);
+    expect(response.ok).toBe(false);
     expect(await getPendingSession('session-1')).toBeNull();
   });
 

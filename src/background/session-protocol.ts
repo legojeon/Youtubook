@@ -58,11 +58,20 @@ export function validateTopLevelYoutubeSender(
     throw new Error('A valid sender tab is required.');
   }
   if (sender.frameId !== 0) throw new Error('Message must come from the top-level frame.');
-  if (!isYoutubeWatchUrl(sender.url)) {
+  // YouTube is a SPA: after an in-page (pushState) navigation the content script's
+  // committed frame URL (sender.url) can lag behind the address bar, while the tab
+  // URL (sender.tab.url) tracks the live /watch URL. Accept either — both describe
+  // the already-verified top frame (frameId === 0 above), so neither is spoofable.
+  const watchUrl = isYoutubeWatchUrl(sender.url)
+    ? sender.url
+    : isYoutubeWatchUrl(sender.tab?.url)
+      ? sender.tab?.url
+      : undefined;
+  if (watchUrl === undefined) {
     throw new Error('Message must come from an https://www.youtube.com/watch page.');
   }
   if (expectedVideoId !== undefined
-    && new URL(sender.url as string).searchParams.get('v') !== expectedVideoId) {
+    && new URL(watchUrl).searchParams.get('v') !== expectedVideoId) {
     throw new Error('Sender URL does not match the session video.');
   }
   return tabId as number;

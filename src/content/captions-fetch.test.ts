@@ -158,6 +158,7 @@ describe('fetchCaptions', () => {
     expect(result).toEqual({
       status: 'available',
       cues: [{ startSec: 1, endSec: 3, text: 'hello' }],
+      lang: 'en',
     });
     expect(requestText).toHaveBeenCalledWith(`${track.baseUrl}&fmt=json3`);
   });
@@ -621,6 +622,7 @@ describe('fetchCaptions', () => {
     expect(result).toEqual({
       status: 'available',
       cues: [{ startSec: 1, endSec: 3, text: 'hello' }],
+      lang: 'en',
     });
     expect(harness.clicks).toEqual([true, false]);
   });

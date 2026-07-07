@@ -1,7 +1,8 @@
 import { DEFAULT_DETECT, detectScenes } from '../core/detect';
 import { formatTimestamp, sanitizeFilename } from '../core/format';
-import { scriptForRange, scriptSpans } from '../core/mapping';
-import { repKey, type SceneRange, type SessionData } from '../core/types';
+import { scriptFromSentences, scriptSpans } from '../core/mapping';
+import { cuesToSentences } from '../core/sentences';
+import { repKey, type Cue, type SceneRange, type SessionData } from '../core/types';
 import type { Msg, MsgResponse, RepRef } from '../messages';
 import { getSession, updateSession } from '../storage/db';
 import { acceptedFrameMessage } from './accepted-frame';
@@ -16,6 +17,7 @@ const banners = $('#banners');
 
 let session: SessionData;
 const selected = new Set<string>(); // repKey 기준 — 재검출 후에도 유지
+let sentences: Cue[] = []; // session.cues에서 1회 재조립 — 민감도 변경(재검출)에도 cues는 불변이라 재계산 불필요
 
 function thumbFor(repSec: number): string {
   const i = Math.min(session.thumbs.length - 1, Math.floor(repSec / session.meta.sampleIntervalSec));
@@ -64,7 +66,7 @@ function render(): void {
 
       const script = document.createElement('div');
       script.className = 'script';
-      script.textContent = scriptForRange(session.cues, range.startSec, range.endSec);
+      script.textContent = scriptFromSentences(sentences, range.startSec, range.endSec);
 
       card.append(img, meta, script);
       card.addEventListener('click', () => {
@@ -151,7 +153,7 @@ function getSelectedScenes(): SelectedScene[] {
   return picked.map((range, i) => ({
     range,
     image: imageFor(range),
-    script: scriptForRange(session.cues, spans[i].startSec, spans[i].endSec),
+    script: scriptFromSentences(sentences, spans[i].startSec, spans[i].endSec),
     scriptStartSec: spans[i].startSec,
     scriptEndSec: spans[i].endSec,
   }));
@@ -165,6 +167,7 @@ void (async () => {
     return;
   }
   session = loaded;
+  sentences = cuesToSentences(session.cues, session.meta.captionLang);
 
   ($('#sensitivity') as HTMLInputElement).value = String(session.meta.sensitivity);
   $('#sensitivity-value').textContent = String(session.meta.sensitivity);

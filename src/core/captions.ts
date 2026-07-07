@@ -17,7 +17,7 @@ export type CaptionFailureReason =
   | 'too-many-events';
 
 export type CaptionFetchResult =
-  | { status: 'available'; cues: Cue[] }
+  | { status: 'available'; cues: Cue[]; lang?: string }
   | { status: 'absent'; cues: [] }
   | { status: 'fetch-failed'; reason: CaptionFailureReason; cues: [] };
 
