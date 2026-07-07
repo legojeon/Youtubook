@@ -304,6 +304,27 @@ describe('sender and session validation', () => {
     expect(await getPendingSession('session-1')).toBeNull();
   });
 
+  it('accepts a SPA sender whose frame url lags but whose tab url is the live /watch page', async () => {
+    // Content script survives YouTube's pushState navigation: sender.url is the
+    // stale committed doc url (home), sender.tab.url is the live /watch url.
+    const spaSender = youtubeSender({
+      url: 'https://www.youtube.com/',
+      tab: { id: 7, url: 'https://www.youtube.com/watch?v=video-1' } as chrome.tabs.Tab,
+    });
+    expect((await createSessionMessageHandler(deps())(begin, spaSender)).ok).toBe(true);
+    expect(await getPendingSession('session-1')).not.toBeNull();
+  });
+
+  it('rejects when neither the frame url nor the tab url is a /watch page', async () => {
+    const nonWatch = youtubeSender({
+      url: 'https://www.youtube.com/',
+      tab: { id: 7, url: 'https://www.youtube.com/feed/subscriptions' } as chrome.tabs.Tab,
+    });
+    const response = await createSessionMessageHandler(deps())(begin, nonWatch);
+    expect(response.ok).toBe(false);
+    expect(await getPendingSession('session-1')).toBeNull();
+  });
+
   it('rejects wrong session and wrong tab without changing thumbnails', async () => {
     const handle = createSessionMessageHandler(deps());
     await handle(begin, youtubeSender());
