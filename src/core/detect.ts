@@ -20,33 +20,52 @@ export const DEFAULT_DETECT = {
   maxScenes: 300,
 } as const;
 
-const FADE_WINDOW = 3;   // 누적 판정 창(샘플 수)
-const FADE_FACTOR = 1.8; // 창 합이 threshold*1.8 이상이면 페이드 경계
+// Adaptive detection (reimplements PySceneDetect AdaptiveDetector; BSD-3-Clause):
+// a cut is a sample whose score is a large multiple of the local neighbourhood
+// average AND above a minimum absolute value. This suppresses false cuts during
+// sustained motion (the local average rises with it) while still catching real
+// spikes — including from a near-zero baseline (static storybook scenes).
+const WINDOW_WIDTH = 2; // samples on each side used as the local baseline
+const EPS = 1e-5;
+const MAX_RATIO = 255;
 
-export function sensitivityToThreshold(sensitivity: number): number {
+/** Map the 1~10 sensitivity slider to adaptive parameters. Higher sensitivity →
+ *  lower ratio threshold + lower minimum score = more cuts. First-pass values;
+ *  re-calibrate on real videos. */
+export function sensitivityToParams(
+  sensitivity: number,
+): { ratioThreshold: number; minContentVal: number } {
   const s = Math.min(10, Math.max(1, sensitivity));
-  return 8 + (10 - s) * 6;
+  const ratioThreshold = 5.0 - (s - 1) * (3.5 / 9); // s1 = 5.0 → s10 = 1.5
+  const minContentVal = 18 - (s - 1) * (12 / 9);     // s1 = 18  → s10 = 6
+  return { ratioThreshold, minContentVal };
 }
 
 export function detectScenes(scores: number[], opts: DetectOptions): DetectResult {
-  const threshold = sensitivityToThreshold(opts.sensitivity);
+  const { ratioThreshold, minContentVal } = sensitivityToParams(opts.sensitivity);
   const minGap = Math.max(1, Math.round(opts.minSceneSec / opts.sampleIntervalSec));
+  const n = scores.length;
 
-  // 최소 장면 길이 때문에 건너뛴 샘플은 전환에 소비된 것으로 보고 0 처리 —
-  // 그대로 두면 직후 페이드 누적 창에 흘러들어 이중 분할된다.
-  const work = [...scores];
   const cuts: { index: number; strength: number }[] = [];
   let lastCut = 0;
-  for (let i = 1; i < work.length; i++) {
-    if (i - lastCut < minGap) {
-      work[i] = 0;
-      continue;
+  for (let i = 1; i < n; i++) {
+    if (i - lastCut < minGap) continue;
+
+    // Local baseline: average of the neighbouring samples (excluding i itself).
+    let sum = 0;
+    let cnt = 0;
+    for (let j = Math.max(1, i - WINDOW_WIDTH); j <= Math.min(n - 1, i + WINDOW_WIDTH); j++) {
+      if (j === i) continue;
+      sum += scores[j];
+      cnt++;
     }
-    const winStart = Math.max(lastCut + 1, i - FADE_WINDOW + 1);
-    let winSum = 0;
-    for (let j = winStart; j <= i; j++) winSum += work[j];
-    if (work[i] >= threshold || winSum >= threshold * FADE_FACTOR) {
-      cuts.push({ index: i, strength: Math.max(work[i], winSum / FADE_WINDOW) });
+    const avg = cnt > 0 ? sum / cnt : 0;
+    const ratio = avg > EPS
+      ? Math.min(scores[i] / avg, MAX_RATIO)
+      : (scores[i] >= minContentVal ? MAX_RATIO : 0);
+
+    if (ratio >= ratioThreshold && scores[i] >= minContentVal) {
+      cuts.push({ index: i, strength: ratio });
       lastCut = i;
     }
   }
