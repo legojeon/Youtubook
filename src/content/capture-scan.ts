@@ -11,7 +11,10 @@ type TrackProcessorCtor = new (init: { track: MediaStreamTrack }) => {
 };
 
 const SCAN_PLAYBACK_RATE = 6;
-const END_EPSILON_SEC = 0.5;    // 재생이 끝 근처에서 멈추므로 duration 직전을 '끝'으로 본다
+// 끝 감지 여유. 이 시점에 영상을 pause해 실제 끝(ended)에 닿지 않게 한다 — ended가 발생하면
+// YouTube 자동재생이 다음 영상으로 이동(yt-navigate-start)해 추출이 self-abort된다. 버퍼링으로
+// currentTime이 한 프레임에 크게 점프해도 끝 전에 멈추도록 넉넉히 잡는다.
+const END_EPSILON_SEC = 1.0;
 const MAX_REACQUIRE = 8;        // 광고 등으로 트랙 재획득을 반복할 상한(무한 루프 방지)
 
 /** captureStream + MediaStreamTrackProcessor 지원 여부(숨긴 탭 프레임 캡처의 전제). `in` 연산자로
@@ -70,46 +73,53 @@ export async function scanVideoStream(
     MediaStreamTrackProcessor: TrackProcessorCtor;
   }).MediaStreamTrackProcessor;
 
-  for (let attempt = 0; attempt < MAX_REACQUIRE && !finished; attempt++) {
-    if (signal.aborted) throw aborted();
+  try {
+    for (let attempt = 0; attempt < MAX_REACQUIRE && !finished; attempt++) {
+      if (signal.aborted) throw aborted();
 
-    const stream = (video as VideoCaptureElement).captureStream();
-    const track = stream.getVideoTracks()[0];
-    if (!track) break; // 캡처 불가 → 폴백에 맡긴다
-    const reader = new Processor({ track }).readable.getReader();
+      const stream = (video as VideoCaptureElement).captureStream();
+      const track = stream.getVideoTracks()[0];
+      if (!track) break; // 캡처 불가 → 폴백에 맡긴다
+      const reader = new Processor({ track }).readable.getReader();
 
-    // 파이프라인 준비 후 재생(첫 프레임을 미디어시간 0 부근에서 잡아 정렬 보존)
-    await video.play().catch(() => {});
+      // 파이프라인 준비 후 재생(첫 프레임을 미디어시간 0 부근에서 잡아 정렬 보존)
+      await video.play().catch(() => {});
 
-    try {
-      for (;;) {
-        const result = await reader.read();
-        if (result.done) break; // 트랙 종료(영상 끝 또는 광고/소스 교체)
-        const frame = result.value; // done=false로 판별되어 VideoFrame으로 좁혀진다
-        if (signal.aborted) { frame.close(); throw aborted(); }
+      try {
+        for (;;) {
+          const result = await reader.read();
+          if (result.done) break; // 트랙 종료(영상 끝 또는 광고/소스 교체)
+          const frame = result.value; // done=false로 판별되어 VideoFrame으로 좁혀진다
+          if (signal.aborted) { frame.close(); throw aborted(); }
 
-        const t = video.currentTime;
-        thumbCtx.drawImage(frame, 0, 0, thumbW, thumbH);
-        diffCtx.drawImage(thumbCv, 0, 0, diffW, diffH);
-        const cur = diffCtx.getImageData(0, 0, diffW, diffH); // 오염 시 SecurityError 전파
-        const score = prev ? frameContentScore(prev, cur) : 0;
-        binner.push(t, score, thumbCv.toDataURL('image/jpeg', 0.6));
-        prev = cur;
-        onProgress(Math.min(binner.scores.length, total), total);
-        frame.close();
+          const t = video.currentTime;
+          thumbCtx.drawImage(frame, 0, 0, thumbW, thumbH);
+          diffCtx.drawImage(thumbCv, 0, 0, diffW, diffH);
+          const cur = diffCtx.getImageData(0, 0, diffW, diffH); // 오염 시 SecurityError 전파
+          const score = prev ? frameContentScore(prev, cur) : 0;
+          binner.push(t, score, thumbCv.toDataURL('image/jpeg', 0.6));
+          prev = cur;
+          onProgress(Math.min(binner.scores.length, total), total);
+          frame.close();
 
-        if (isEnd()) { finished = true; break; }
-        if (video.paused && !finished) await video.play().catch(() => {});
-        if (binner.scores.length >= MAX_SCAN_SAMPLES) { finished = true; break; }
+          // 끝 근처에 닿으면 즉시 pause — ended → 자동재생 이동을 막는다(가장 이른 시점).
+          if (isEnd()) { video.pause(); finished = true; break; }
+          if (video.paused && !finished) await video.play().catch(() => {});
+          if (binner.scores.length >= MAX_SCAN_SAMPLES) { finished = true; break; }
+        }
+      } finally {
+        reader.releaseLock();
+        track.stop();
       }
-    } finally {
-      reader.releaseLock();
-      track.stop();
-    }
 
-    if (finished || isEnd()) break;
-    // 트랙이 끝났는데 영상 끝이 아니면 광고/중단 → 광고 종료 대기 후 재획득
-    await waitForNoAd(() => { /* 진행 표시는 상위 오버레이가 담당 */ }, signal);
+      if (finished || isEnd()) break;
+      // 트랙이 끝났는데 영상 끝이 아니면 광고/중단 → 광고 종료 대기 후 재획득
+      await waitForNoAd(() => { /* 진행 표시는 상위 오버레이가 담당 */ }, signal);
+    }
+  } finally {
+    // 어떤 종료 경로(정상·폴백·상한·취소)에서도 영상을 재생 상태로 남기지 않는다 —
+    // 끝까지 재생돼 ended가 나면 YouTube 자동재생이 다음 영상으로 넘어가 추출을 self-abort시킨다.
+    video.pause();
   }
 
   binner.finish();
