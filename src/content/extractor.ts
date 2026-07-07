@@ -86,7 +86,7 @@ async function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
   await nextFrame();
 }
 
-function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
+export function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const cv = document.createElement('canvas');
   cv.width = w;
   cv.height = h;
