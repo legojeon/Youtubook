@@ -30,5 +30,5 @@ export function validateVideoDuration(durationSec: number): boolean {
 }
 
 export function scanIntervalForDuration(durationSec: number): number {
-  return Math.max(1, durationSec / MAX_SCAN_SAMPLES);
+  return Math.max(0.25, durationSec / MAX_SCAN_SAMPLES);
 }
