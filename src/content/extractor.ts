@@ -1,4 +1,4 @@
-import { frameDiffScore } from '../core/diff';
+import { frameContentScore } from '../core/diff';
 import { MAX_SCAN_SAMPLES } from '../core/limits';
 import type { RepRef } from '../messages';
 
@@ -149,7 +149,7 @@ export async function scanVideo(
     thumbCtx.drawImage(video, 0, 0, thumbW, thumbH);
     diffCtx.drawImage(thumbCv, 0, 0, diffW, diffH);
     const cur = diffCtx.getImageData(0, 0, diffW, diffH); // 오염 시 SecurityError 전파
-    scores.push(prev ? frameDiffScore(prev, cur) : 0);
+    scores.push(prev ? frameContentScore(prev, cur) : 0);
     thumbs.push(thumbCv.toDataURL('image/jpeg', 0.6));
     prev = cur;
     onProgress(i + 1, times.length);
