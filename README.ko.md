@@ -15,18 +15,13 @@ Youtubook은 영상을 장면 스크린샷과 자막 대본이 어우러진 한 
 
 </div>
 
-<table>
-  <tr>
-    <td width="47%"><img src="assets/youtube-view.png" alt="재생 중인 유튜브 영상"></td>
-    <td width="6%" align="center"><h3>➡️</h3></td>
-    <td width="47%"><img src="assets/html-view.png" alt="생성된 페이지: 장면 이미지 옆에 내레이션"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>아무 유튜브 영상</b></td>
-    <td></td>
-    <td align="center"><b>읽을 수 있는 한 페이지</b></td>
-  </tr>
-</table>
+<div align="center">
+
+<img src="assets/hero.png" width="88%" alt="아무 유튜브 영상이 읽을 수 있는 한 페이지로">
+
+<sub><b>아무 유튜브 영상</b> &nbsp;→&nbsp; <b>읽을 수 있는 한 페이지</b></sub>
+
+</div>
 
 Youtubook은 영상의 장면을 자동으로 나누고 각 장면을 자막 대본과 짝지어, 스크롤하며 읽는 한 페이지로 정리합니다. **30분짜리 강연을 다 보지 않고 몇 분 만에 아티클처럼 훑거나**, **동화 영상을 부모·교사가 읽어 줄 그림책으로** 소장할 수 있습니다. 자립형 HTML 페이지, PDF·PPTX, 또는 대본 TXT로 내보내세요.
 

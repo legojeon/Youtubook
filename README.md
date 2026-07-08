@@ -15,18 +15,13 @@ Youtubook turns any video into an illustrated page — each scene's screenshot p
 
 </div>
 
-<table>
-  <tr>
-    <td width="47%"><img src="assets/youtube-view.png" alt="A YouTube video playing"></td>
-    <td width="6%" align="center"><h3>➡️</h3></td>
-    <td width="47%"><img src="assets/html-view.png" alt="The generated page: each scene's image beside its narration"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Any YouTube video</b></td>
-    <td></td>
-    <td align="center"><b>An illustrated page you can read</b></td>
-  </tr>
-</table>
+<div align="center">
+
+<img src="assets/hero.png" width="88%" alt="Any YouTube video becomes an illustrated page you can read">
+
+<sub><b>Any YouTube video</b> &nbsp;→&nbsp; <b>an illustrated page you can read</b></sub>
+
+</div>
 
 Youtubook detects the distinct scenes in a video and pairs each with the transcript from its captions, laying them out as a scrollable illustrated page. **Skim a 30-minute talk in a couple of minutes** instead of watching it — or **turn a story video into a picture book** a parent or teacher can read aloud. Export it as a self-contained HTML page, a PDF or PPTX, or a plain-text script.
 
