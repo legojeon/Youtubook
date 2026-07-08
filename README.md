@@ -2,13 +2,13 @@
 
 **English** · [한국어](README.ko.md)
 
-Turn any YouTube video into a printable **picture book** — scene images paired with the narration — entirely in your browser.
+Turn any YouTube video into a scrollable **article** or printable **picture book** — scene screenshots paired with the transcript — entirely in your browser.
 
 <table>
   <tr>
-    <td width="47%"><img src="public/assets/youtube-view.png" alt="A YouTube video playing"></td>
+    <td width="47%"><img src="assets/youtube-view.png" alt="A YouTube video playing"></td>
     <td width="6%" align="center"><h3>➡️</h3></td>
-    <td width="47%"><img src="public/assets/html-view.png" alt="The generated picture book: each scene's image beside its narration"></td>
+    <td width="47%"><img src="assets/html-view.png" alt="The generated picture book: each scene's image beside its narration"></td>
   </tr>
   <tr>
     <td align="center"><b>Any YouTube video</b></td>
@@ -17,15 +17,15 @@ Turn any YouTube video into a printable **picture book** — scene images paired
   </tr>
 </table>
 
-Youtubook detects the distinct scenes in a video, pairs each with the spoken narration from the captions, and exports a picture book (PDF / PPTX / HTML) plus a plain-text script. Made for turning story videos into books a parent or teacher can read aloud — but it works on any YouTube video (lectures, talks, tutorials).
+Youtubook detects the distinct scenes in a video, pairs each with the transcript from its captions, and exports a scrollable HTML article (or a PDF / PPTX picture book, plus a plain-text script). Skim a 30-minute talk in a couple of minutes instead of watching it — or turn a story video into a book a parent or teacher can read aloud.
 
-Everything runs **100% in your browser** — no server, no external API, no Python.
+Everything runs **100% in your browser** — no AI, no server, no video downloads. It uses only the captions YouTube already exposes, and never downloads video streams, blocks ads, or re-hosts content.
 
 ## Features
 
 - **Automatic scene detection** — HSV color-difference with an adaptive, PySceneDetect-style threshold; a sensitivity slider re-detects instantly.
 - **Narration from captions** — pulls the script from YouTube captions (manual preferred, auto-generated fallback) and aligns it to each scene.
-- **Multiple exports** — PDF (one scene per page), PPTX (script in the speaker notes), a self-contained **HTML book** (each scene deep-links back to that moment in the video), and TXT (script only).
+- **Multiple exports** — a self-contained **HTML article** (each scene's screenshot beside its transcript, deep-linking back to that moment in the video), PDF (one scene per page), PPTX (script in the speaker notes), and TXT (script only).
 - **Runs in the background** — switch to other tabs while it works; a notification tells you when it's done.
 - **Bilingual UI** — English and Korean, following your browser language.
 
@@ -36,7 +36,7 @@ Everything runs **100% in your browser** — no server, no external API, no Pyth
 3. On the results page, pick the scenes you want — the sensitivity slider re-detects, and each card shows its narration.
 
 <p align="center">
-  <img src="public/assets/pick-scene.png" width="85%" alt="Youtubook results page: a grid of detected scenes with narration, a sensitivity slider, and export options">
+  <img src="assets/pick-scene.png" width="85%" alt="Youtubook results page: a grid of detected scenes with narration, a sensitivity slider, and export options">
 </p>
 
 4. **Next** → download as PDF / PPTX / HTML / TXT.
