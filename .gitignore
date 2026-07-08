@@ -3,5 +3,6 @@ dist/
 .superpowers/
 .claude/
 docs/
+tests/
 *.zip
 .DS_Store
