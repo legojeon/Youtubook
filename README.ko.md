@@ -10,6 +10,7 @@ Youtubook은 영상을 장면 스크린샷과 자막 대본이 어우러진 한 
 <img alt="Manifest V3" src="https://img.shields.io/badge/Manifest-V3-4285F4">
 <img alt="Chrome 111+" src="https://img.shields.io/badge/Chrome-111%2B-4285F4">
 <img alt="100% in-browser" src="https://img.shields.io/badge/100%25-in--browser-2ea44f">
+<img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow">
 
 [English](README.md) · **한국어**
 
@@ -90,3 +91,9 @@ Youtubook은 모든 처리를 브라우저 안에서 로컬로 수행합니다 �
 - 자막이 없는 영상은 장면 이미지만 만들어집니다(대본·TXT 없음).
 - 라이브 방송, 프리미어, DRM 보호 영상은 지원하지 않습니다.
 - 유튜브 페이지 구조가 바뀌면 일부 기능(예: 자막 추출)이 영향을 받을 수 있습니다.
+
+## 라이선스
+
+[MIT](LICENSE) © 2026 legojeon
+
+번들된 서드파티 라이브러리는 각자의 라이선스를 따릅니다 — [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) 참고. 장면 검출은 [PySceneDetect](https://www.scenedetect.com/)(BSD-3-Clause)의 알고리즘을 처음부터 재구현한 것으로, PySceneDetect 코드는 포함하지 않습니다.

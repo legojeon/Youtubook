@@ -10,6 +10,7 @@ Youtubook turns any video into an illustrated page — each scene's screenshot p
 <img alt="Manifest V3" src="https://img.shields.io/badge/Manifest-V3-4285F4">
 <img alt="Chrome 111+" src="https://img.shields.io/badge/Chrome-111%2B-4285F4">
 <img alt="100% in-browser" src="https://img.shields.io/badge/100%25-in--browser-2ea44f">
+<img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow">
 
 **English** · [한국어](README.ko.md)
 
@@ -90,3 +91,9 @@ Youtubook processes everything locally in your browser — video frames, caption
 - Videos without captions produce scene images only (no script / TXT).
 - Live streams, premieres, and DRM-protected videos aren't supported.
 - YouTube page changes can affect some features (e.g. caption extraction).
+
+## License
+
+[MIT](LICENSE) © 2026 legojeon
+
+Bundled third-party libraries keep their own licenses — see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). Scene detection reimplements the algorithm of [PySceneDetect](https://www.scenedetect.com/) (BSD-3-Clause) from scratch; no PySceneDetect code is included.
