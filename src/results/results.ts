@@ -170,6 +170,8 @@ void (async () => {
       );
   });
 
+  render();
+
   // Export/download UI is Full-edition only. In the Lite (Web Store) build the
   // else-branch is statically dead, so download-panel + exporters + jspdf +
   // pptxgenjs are tree-shaken out of the bundle entirely.
@@ -192,5 +194,4 @@ void (async () => {
   if (session.meta.truncated) {
     banner(t('banner_truncated'));
   }
-  render();
 })();
