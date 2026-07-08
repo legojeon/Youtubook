@@ -46,7 +46,14 @@ The script follows your selected scenes: each chosen scene carries all narration
 
 ## Install
 
-1. Grab a release zip, or build it yourself: `npm install && npm run build` produces `dist/`.
+**From a release**
+
+1. Download `youtubook-v<version>.zip` from the [Releases](../../releases) page and unzip it.
+2. Chrome → `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select the unzipped folder (the one containing `manifest.json`).
+
+**Build it yourself**
+
+1. `npm install && npm run build` → produces `dist/`.
 2. Chrome → `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/`.
 
 Requires Chrome 111+.

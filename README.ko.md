@@ -46,7 +46,14 @@ Youtubook은 영상의 장면을 자동으로 나누고, 각 장면을 자막 �
 
 ## 설치
 
-1. 릴리스 zip을 풀거나 직접 빌드합니다: `npm install && npm run build` → `dist/` 생성.
+**릴리스에서 설치**
+
+1. [Releases](../../releases)에서 `youtubook-v<버전>.zip`을 내려받아 압축을 풉니다.
+2. Chrome → `chrome://extensions` → **개발자 모드** 켜기 → **압축해제된 확장 프로그램 로드** → 압축을 푼 폴더(`manifest.json`이 들어 있는 폴더) 선택.
+
+**직접 빌드**
+
+1. `npm install && npm run build` → `dist/` 생성.
 2. Chrome → `chrome://extensions` → **개발자 모드** 켜기 → **압축해제된 확장 프로그램 로드** → `dist/` 선택.
 
 요구사항: Chrome 111+
