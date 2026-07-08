@@ -14,7 +14,7 @@
   "results_next": { "message": "Next →" },
   "results_sensitivity": { "message": "Sensitivity" },
   "results_redetect": { "message": "Re-detect" },
-  "dl_heading": { "message": "Download files" },
+  "dl_heading": { "message": "Choose a format" },
   "dl_pdf_sub": { "message": "Scenes" },
   "dl_pptx_sub": { "message": "Scenes + script" },
   "dl_txt_sub": { "message": "Script" },

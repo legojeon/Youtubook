@@ -30,15 +30,13 @@
   </header>
   <main id="grid"></main>
   <section id="export-panel" hidden>
-    <div class="export-actions">
-      <button id="view-book" class="btn btn-primary" data-i18n="viewer_view">책으로 보기</button>
-    </div>
-    <h2 data-i18n="dl_heading">파일 다운로드</h2>
+    <h2 data-i18n="dl_heading">형식을 선택하세요</h2>
     <div class="dl-grid">
       <button id="dl-pdf" class="dl"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><span>PDF <span class="fmt" data-i18n="dl_pdf_sub">장면 모음</span></span></button>
       <button id="dl-pptx" class="dl"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/></svg><span>PPTX <span class="fmt" data-i18n="dl_pptx_sub">장면+대본</span></span></button>
       <button id="dl-txt" class="dl"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg><span>TXT <span class="fmt" data-i18n="dl_txt_sub">대본</span></span></button>
       <button id="dl-html" class="dl"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5a2 2 0 0 1 2-2h6v18H5a2 2 0 0 1-2-2z"/><path d="M21 5a2 2 0 0 0-2-2h-6v18h6a2 2 0 0 0 2-2z"/></svg><span><span data-i18n="dl_html">웹페이지</span> <span class="fmt" data-i18n="dl_html_sub">책처럼 읽기</span></span></button>
+      <button id="view-book" class="dl dl-view"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg><span><span data-i18n="viewer_view">책으로 보기</span> <span class="fmt" data-i18n="viewer_view_sub">새 탭에서 열기</span></span></button>
     </div>
     <div class="dl-foot">
       <label class="switch" data-i18n-title="downscale_title" title="PDF·PPTX·웹페이지 사진을 1280px로 줄여 파일 용량을 낮춥니다. 크게 보거나 인쇄·발표할 땐 끄세요.">

@@ -23,8 +23,8 @@ h1 { font-size:20px; font-weight:700; letter-spacing:-0.5px; margin:0; color:var
 
 #export-panel { background:var(--canvas); border-top:1px solid var(--hairline); margin-top:16px; padding:24px; }
 #export-panel > * { max-width:1160px; margin-left:auto; margin-right:auto; }
-#export-panel h2 { font-size:18px; font-weight:600; margin:0 0 14px; color:var(--ink); }
-.dl-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+#export-panel h2 { font-size:18px; font-weight:600; margin:0 0 14px; color:var(--ink); text-align:center; }
+.dl-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
 .dl { height:72px; background:var(--canvas); color:var(--ink); border:1px solid var(--hairline); border-radius:var(--r-md);
   cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; font-size:14px; font-weight:700; font-family:var(--font); }
 .dl:active { background:var(--page); }
@@ -32,7 +32,10 @@ h1 { font-size:20px; font-weight:700; letter-spacing:-0.5px; margin:0; color:var
 .dl .fmt { color:var(--mute); font-size:11px; font-weight:500; margin-top:-2px; }
 .dl:disabled .fmt { color:var(--stone); }
 .dl svg { display:block; }
+/* 그림책 보기: 다운로드 버튼과 동일 형태에 강조색만 빨강 */
+.dl-view { background:var(--primary); color:var(--on-primary); border-color:var(--primary); }
+.dl-view:active { background:var(--primary-pressed); }
+.dl-view .fmt { color:var(--on-primary); opacity:.85; }
 .dl-foot { display:flex; align-items:center; justify-content:space-between; margin-top:16px; padding-top:14px; border-top:1px solid var(--hairline-soft); }
 .status { color:var(--mute); font-size:13px; }
 @media (max-width:620px){ .dl-grid{ grid-template-columns:repeat(2,1fr); } }
-.export-actions { margin: 0 0 16px; }

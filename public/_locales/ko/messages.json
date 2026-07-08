@@ -14,7 +14,7 @@
   "results_next": { "message": "다음 →" },
   "results_sensitivity": { "message": "민감도" },
   "results_redetect": { "message": "재검출" },
-  "dl_heading": { "message": "파일 다운로드" },
+  "dl_heading": { "message": "형식을 선택하세요" },
   "dl_pdf_sub": { "message": "장면 모음" },
   "dl_pptx_sub": { "message": "장면+대본" },
   "dl_txt_sub": { "message": "대본" },
