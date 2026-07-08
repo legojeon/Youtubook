@@ -7,8 +7,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build && cp LICENSE THIRD_PARTY_LICENSES.md dist/",
+    "build:webstore": "tsc --noEmit && VITE_EDITION=webstore vite build && cp LICENSE THIRD_PARTY_LICENSES.md dist-webstore/",
     "test": "vitest run",
-    "zip": "npm run build && cd dist && rm -f ../youtubook-v$npm_package_version.zip && zip -rX ../youtubook-v$npm_package_version.zip . -x '*.DS_Store'"
+    "zip": "npm run build && cd dist && rm -f ../youtubook-v$npm_package_version.zip && zip -rX ../youtubook-v$npm_package_version.zip . -x '*.DS_Store'",
+    "zip:webstore": "npm run build:webstore && cd dist-webstore && rm -f ../youtubook-lite-v$npm_package_version.zip && zip -rX ../youtubook-lite-v$npm_package_version.zip . -x '*.DS_Store'"
   },
   "dependencies": {
     "jspdf": "^3.0.1",

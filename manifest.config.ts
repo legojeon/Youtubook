@@ -1,8 +1,10 @@
 import { defineManifest } from '@crxjs/vite-plugin';
 
+const isWebstore = process.env.VITE_EDITION === 'webstore';
+
 export default defineManifest({
   manifest_version: 3,
-  name: 'Youtubook',
+  name: isWebstore ? 'Youtubook Lite' : 'Youtubook Full',
   version: '0.1.0',
   default_locale: 'en',
   description: '__MSG_appDesc__',
