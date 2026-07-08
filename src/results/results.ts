@@ -218,6 +218,15 @@ void (async () => {
       );
       downloadBlob(buildHtmlBook(book, htmlLabels(), uiLang()), `${base()}_book.html`);
     }));
+  $('#view-book').addEventListener('click', () => {
+    void chrome.storage.session
+      .set({ [`book:${session.meta.id}`]: [...selected] })
+      .then(() =>
+        chrome.tabs.create({
+          url: `${chrome.runtime.getURL('src/viewer/viewer.html')}?session=${encodeURIComponent(session.meta.id)}`,
+        }),
+      );
+  });
 
   if (captionPresentation.warningKey) banner(t(captionPresentation.warningKey));
   if (session.meta.truncated) {
