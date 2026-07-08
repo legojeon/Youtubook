@@ -1,13 +1,15 @@
 import { DEFAULT_DETECT, detectScenes } from '../core/detect';
 import { formatTimestamp, sanitizeFilename } from '../core/format';
-import { scriptFromSentences, scriptSpans } from '../core/mapping';
+import { scriptFromSentences } from '../core/mapping';
 import { cuesToSentences } from '../core/sentences';
-import { repKey, type Cue, type SceneRange, type SessionData } from '../core/types';
+import { repKey, type Cue, type SessionData } from '../core/types';
 import type { Msg, MsgResponse, RepRef } from '../messages';
 import { getSession, updateSession } from '../storage/db';
 import { acceptedFrameMessage } from './accepted-frame';
 import { captionPresentationForMeta } from './caption-presentation';
-import { buildHtmlBook, buildPdf, buildPptx, buildTxt, downloadBlob, type BookData } from './exporters';
+import { buildHtmlBook, buildPdf, buildPptx, buildTxt, downloadBlob } from './exporters';
+import { buildBookData, imageFor, selectedScenes, type SelectedScene } from './book-data';
+import type { BookLabels } from './html-book';
 import { resizeForBook, resizeForSlides } from './image-resize';
 import { applyI18n, t } from '../ui/i18n';
 
@@ -18,15 +20,6 @@ const banners = $('#banners');
 let session: SessionData;
 const selected = new Set<string>(); // repKey 기준 — 재검출 후에도 유지
 let sentences: Cue[] = []; // session.cues에서 1회 재조립 — 민감도 변경(재검출)에도 cues는 불변이라 재계산 불필요
-
-function thumbFor(repSec: number): string {
-  const i = Math.min(session.thumbs.length - 1, Math.floor(repSec / session.meta.sampleIntervalSec));
-  return session.thumbs[i] ?? '';
-}
-
-function imageFor(range: SceneRange): string {
-  return session.images[repKey(range.repSec)] ?? thumbFor(range.repSec);
-}
 
 function banner(text: string, kind: 'warn' | 'error' = 'warn'): void {
   const div = document.createElement('div');
@@ -52,7 +45,7 @@ function render(): void {
       card.dataset.key = key;
 
       const img = document.createElement('img');
-      img.src = imageFor(range);
+      img.src = imageFor(session, range);
       img.loading = 'lazy';
 
       const meta = document.createElement('div');
@@ -135,28 +128,8 @@ chrome.runtime.onMessage.addListener((msg: unknown) => {
   if (img) img.src = message.dataUrl;
 });
 
-export interface SelectedScene {
-  range: SceneRange;
-  image: string;
-  script: string;
-  scriptStartSec: number; // 이 장면이 담당하는 대본 구간 (선택 장면 기준 타임라인 분할)
-  scriptEndSec: number;
-}
-
 function getSelectedScenes(): SelectedScene[] {
-  const picked = session.ranges
-    .filter(r => selected.has(repKey(r.repSec)))
-    .sort((a, b) => a.startSec - b.startSec);
-  // 선택 장면들로 전체 타임라인을 분할 — 각 장면이 다음 선택 장면 전까지의
-  // 자막을 모두 가져가 내레이션이 빠지지 않는다 (그림책 읽어주기 용도).
-  const spans = scriptSpans(picked.map(r => r.startSec), session.meta.durationSec);
-  return picked.map((range, i) => ({
-    range,
-    image: imageFor(range),
-    script: scriptFromSentences(sentences, spans[i].startSec, spans[i].endSec),
-    scriptStartSec: spans[i].startSec,
-    scriptEndSec: spans[i].endSec,
-  }));
+  return selectedScenes(session, sentences, selected);
 }
 void (async () => {
   applyI18n(document);
@@ -231,23 +204,19 @@ void (async () => {
       }));
       downloadBlob(buildTxt(entries), `${base()}_script.txt`);
     }));
+  const htmlLabels = (): BookLabels => ({
+    playCaption: t('book_playCaption'),
+    openOriginal: t('book_openOriginal'),
+  });
+  const uiLang = (): string => chrome.i18n?.getUILanguage?.() || 'en';
   $('#dl-html').addEventListener('click', e =>
     void busy(e.currentTarget as HTMLButtonElement, async () => {
-      const scenes = getSelectedScenes();
-      // Full-resolution WebP by default; the shared toggle downscales for a smaller file.
-      const images = await Promise.all(scenes.map(s => resizeForBook(s.image, wantsDownscale())));
-      const bookData: BookData = {
-        title: session.meta.title,
-        videoUrl: session.meta.videoUrl,
-        videoId: session.meta.videoId,
-        cover: { title: session.meta.title, image: images[0] ?? '' },
-        scenes: scenes.map((s, i) => ({
-          image: images[i],
-          script: s.script,
-          deepLinkSec: s.range.repSec,
-        })),
-      };
-      downloadBlob(buildHtmlBook(bookData), `${base()}_book.html`);
+      const book = await buildBookData(
+        getSelectedScenes(),
+        session.meta,
+        img => resizeForBook(img, wantsDownscale()),
+      );
+      downloadBlob(buildHtmlBook(book, htmlLabels(), uiLang()), `${base()}_book.html`);
     }));
 
   if (captionPresentation.warningKey) banner(t(captionPresentation.warningKey));
