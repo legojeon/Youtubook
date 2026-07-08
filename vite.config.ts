@@ -7,7 +7,10 @@ export default defineConfig({
   build: {
     target: 'chrome111',
     rollupOptions: {
-      input: { results: 'src/results/results.html' },
+      input: {
+        results: 'src/results/results.html',
+        viewer: 'src/viewer/viewer.html',
+      },
     },
   },
 });
