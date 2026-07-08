@@ -37,7 +37,7 @@ Everything runs **100% in your browser** — no AI, no server, no video download
 - **Automatic scene detection** — HSV color-difference with an adaptive, PySceneDetect-style threshold; a sensitivity slider re-detects instantly.
 - **Narration from captions** — pulls the script from YouTube captions (manual first, auto-generated as a fallback) and aligns it to each scene.
 - **View as book** — open the finished page in a new browser tab and read it straight away, no download needed. Each scene links back to that exact moment in the video.
-- **Multiple export formats** — or save it as a file: a self-contained **HTML page** (each scene's screenshot beside its transcript), PDF (one scene per page), PPTX (script in the speaker notes), or TXT (script only).
+- **Multiple export formats** — or save it as a file: a self-contained, responsive **HTML page** that reads well on any screen from phone to desktop (each scene's screenshot beside its transcript), PDF (one scene per page), PPTX (script in the speaker notes), or TXT (script only).
 - **Runs in the background** — switch to other tabs while it works; a notification tells you when it's done.
 - **Bilingual UI** — English and Korean, following your browser language.
 
