@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && cp LICENSE THIRD_PARTY_LICENSES.md dist/",
     "test": "vitest run",
     "zip": "npm run build && cd dist && rm -f ../youtubook-v$npm_package_version.zip && zip -rX ../youtubook-v$npm_package_version.zip . -x '*.DS_Store'"
   },
