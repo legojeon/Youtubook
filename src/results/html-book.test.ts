@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHtmlBook, escapeHtml, type BookData } from './html-book';
+import { buildHtmlBook, escapeHtml, renderBookBodyHtml, type BookData, type BookLabels } from './html-book';
 
 const IMG = 'data:image/jpeg;base64,/9j/AAAA/9k=';
 
@@ -17,7 +17,9 @@ function book(overrides: Partial<BookData> = {}): BookData {
   };
 }
 
-const html = (data: BookData): Promise<string> => buildHtmlBook(data).text();
+const LABELS: BookLabels = { playCaption: '장면 — 이 순간부터 영상 보기', openOriginal: '원본 영상 열기 ↗' };
+
+const html = (data: BookData): Promise<string> => buildHtmlBook(data, LABELS, 'ko').text();
 
 describe('escapeHtml', () => {
   it('HTML 특수문자를 이스케이프한다', () => {
@@ -88,5 +90,27 @@ describe('buildHtmlBook', () => {
   it('비유한(NaN) deepLinkSec은 0초로 고정된다', async () => {
     const out = await html(book({ scenes: [{ image: IMG, script: 'NaN', deepLinkSec: NaN }] }));
     expect(out).toContain('t=0s');
+  });
+});
+
+describe('renderBookBodyHtml', () => {
+  it('본문만 반환하고 doctype/style은 포함하지 않는다', () => {
+    const out = renderBookBodyHtml(book(), LABELS);
+    expect(out).toContain('<div class="wrap">');
+    expect(out).not.toContain('<!doctype html>');
+    expect(out).not.toContain('<style>');
+  });
+
+  it('라벨(원본 링크·이미지 alt)을 주입한다', () => {
+    const out = renderBookBodyHtml(book(), LABELS);
+    expect(out).toContain('원본 영상 열기 ↗');
+    expect(out).toContain('alt="장면 — 이 순간부터 영상 보기"');
+  });
+
+  it('라벨도 이스케이프한다', () => {
+    const out = renderBookBodyHtml(book(), { playCaption: '<x>', openOriginal: '<y>' });
+    expect(out).toContain('&lt;x&gt;');
+    expect(out).toContain('&lt;y&gt;');
+    expect(out).not.toContain('<x>');
   });
 });

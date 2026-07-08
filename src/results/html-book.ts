@@ -21,23 +21,28 @@ export function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+export interface BookLabels {
+  playCaption: string;
+  openOriginal: string;
+}
+
 function deepLinkUrl(videoId: string, sec: number): string {
   const t = Number.isFinite(sec) ? Math.max(0, Math.floor(sec)) : 0;
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${t}s`;
 }
 
-function sceneBlockHtml(block: SceneBlock, videoId: string): string {
+function sceneBlockHtml(block: SceneBlock, videoId: string, labels: BookLabels): string {
   const href = escapeHtml(deepLinkUrl(videoId, block.deepLinkSec));
   return `    <article class="scene">
       <a class="photo" href="${href}" target="_blank" rel="noopener">
-        <img src="${block.image}" alt="장면 — 이 순간부터 영상 보기" loading="lazy">
+        <img src="${block.image}" alt="${escapeHtml(labels.playCaption)}" loading="lazy">
         <span class="play">▶</span>
       </a>
       <p class="script">${escapeHtml(block.script)}</p>
     </article>`;
 }
 
-const STYLE = `
+export const BOOK_STYLE = `
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
   body { margin: 0; line-height: 1.7; background: #faf9f7; color: #23262e;
@@ -64,29 +69,35 @@ const STYLE = `
     .cover a { color: #7fb0f0; }
   }`;
 
-export function buildHtmlBook(book: BookData): Blob {
-  const scenes = book.scenes.map(s => sceneBlockHtml(s, book.videoId)).join('\n');
-  const coverImg = book.cover.image ? `<img src="${book.cover.image}" alt="${escapeHtml(book.cover.title)}">` : '';
-  const html = `<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(book.title)}</title>
-<style>${STYLE}
-</style>
-</head>
-<body>
-<div class="wrap">
+export function renderBookBodyHtml(book: BookData, labels: BookLabels): string {
+  const scenes = book.scenes.map(s => sceneBlockHtml(s, book.videoId, labels)).join('\n');
+  const coverImg = book.cover.image
+    ? `<img src="${book.cover.image}" alt="${escapeHtml(book.cover.title)}">`
+    : '';
+  return `<div class="wrap">
   <header class="cover">
     ${coverImg}
     <h1>${escapeHtml(book.cover.title)}</h1>
-    <a href="${escapeHtml(book.videoUrl)}" target="_blank" rel="noopener">원본 영상 열기 ↗</a>
+    <a href="${escapeHtml(book.videoUrl)}" target="_blank" rel="noopener">${escapeHtml(labels.openOriginal)}</a>
   </header>
   <main>
 ${scenes}
   </main>
-</div>
+</div>`;
+}
+
+export function buildHtmlBook(book: BookData, labels: BookLabels, lang: string): Blob {
+  const html = `<!doctype html>
+<html lang="${escapeHtml(lang)}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(book.title)}</title>
+<style>${BOOK_STYLE}
+</style>
+</head>
+<body>
+${renderBookBodyHtml(book, labels)}
 </body>
 </html>`;
   return new Blob([html], { type: 'text/html;charset=utf-8' });
