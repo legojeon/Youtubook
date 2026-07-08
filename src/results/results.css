@@ -39,3 +39,9 @@ h1 { font-size:20px; font-weight:700; letter-spacing:-0.5px; margin:0; color:var
 .dl-foot { display:flex; align-items:center; justify-content:space-between; margin-top:16px; padding-top:14px; border-top:1px solid var(--hairline-soft); }
 .status { color:var(--mute); font-size:13px; }
 @media (max-width:620px){ .dl-grid{ grid-template-columns:repeat(2,1fr); } }
+
+.dl-note {
+  margin-top: 12px;
+  font-size: 13px;
+  opacity: 0.75;
+}

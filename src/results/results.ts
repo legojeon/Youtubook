@@ -1,5 +1,5 @@
 import { DEFAULT_DETECT, detectScenes } from '../core/detect';
-import { formatTimestamp, sanitizeFilename } from '../core/format';
+import { formatTimestamp } from '../core/format';
 import { scriptFromSentences } from '../core/mapping';
 import { cuesToSentences } from '../core/sentences';
 import { repKey, type Cue, type SessionData } from '../core/types';
@@ -7,10 +7,7 @@ import type { Msg, MsgResponse, RepRef } from '../messages';
 import { getSession, updateSession } from '../storage/db';
 import { acceptedFrameMessage } from './accepted-frame';
 import { captionPresentationForMeta } from './caption-presentation';
-import { buildHtmlBook, buildPdf, buildPptx, buildTxt, downloadBlob } from './exporters';
-import { buildBookData, imageFor, selectedScenes, type SelectedScene } from './book-data';
-import type { BookLabels } from './html-book';
-import { resizeForBook, resizeForSlides } from './image-resize';
+import { imageFor, selectedScenes, type SelectedScene } from './book-data';
 import { applyI18n, t } from '../ui/i18n';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -141,6 +138,7 @@ void (async () => {
   }
   session = loaded;
   sentences = cuesToSentences(session.cues, session.meta.captionLang);
+  const captionPresentation = captionPresentationForMeta(session.meta);
 
   ($('#sensitivity') as HTMLInputElement).value = String(session.meta.sensitivity);
   $('#sensitivity-value').textContent = String(session.meta.sensitivity);
@@ -161,63 +159,7 @@ void (async () => {
     $('#export-panel').scrollIntoView({ behavior: 'smooth' });
   });
 
-  const busy = async (btn: HTMLButtonElement, fn: () => Promise<void>) => {
-    btn.disabled = true;
-    $('#export-status').textContent = t('export_generating');
-    try {
-      await fn();
-      $('#export-status').textContent = t('export_done');
-    } catch (err) {
-      $('#export-status').textContent = t('export_failed', err instanceof Error ? err.message : String(err));
-    } finally {
-      btn.disabled = false;
-    }
-  };
-  const base = () => sanitizeFilename(session.meta.title);
-  const { videoWidth: vw, videoHeight: vh } = session.meta;
-  // Global export option: downscale embedded frames to shrink every download.
-  const wantsDownscale = () => ($('#downscale-images') as HTMLInputElement).checked;
-
-  $('#dl-pdf').addEventListener('click', e =>
-    void busy(e.currentTarget as HTMLButtonElement, async () => {
-      const scenes = getSelectedScenes();
-      const images = await Promise.all(scenes.map(s => resizeForSlides(s.image, wantsDownscale())));
-      downloadBlob(buildPdf(images, vw, vh), `${base()}_scenes.pdf`);
-    }));
-  $('#dl-pptx').addEventListener('click', e =>
-    void busy(e.currentTarget as HTMLButtonElement, async () => {
-      const scenes = getSelectedScenes();
-      const downscale = wantsDownscale();
-      const slides = await Promise.all(scenes.map(async s => ({
-        image: await resizeForSlides(s.image, downscale),
-        notes: s.script,
-      })));
-      downloadBlob(await buildPptx(slides, vw, vh), `${base()}_scenes.pptx`);
-    }));
-  const txtBtn = $('#dl-txt') as HTMLButtonElement;
-  const captionPresentation = captionPresentationForMeta(session.meta);
-  txtBtn.disabled = !captionPresentation.txtEnabled;
-  txtBtn.addEventListener('click', e =>
-    void busy(e.currentTarget as HTMLButtonElement, async () => {
-      const entries = getSelectedScenes().map(s => ({
-        startSec: s.scriptStartSec, endSec: s.scriptEndSec, text: s.script,
-      }));
-      downloadBlob(buildTxt(entries), `${base()}_script.txt`);
-    }));
-  const htmlLabels = (): BookLabels => ({
-    playCaption: t('book_playCaption'),
-    openOriginal: t('book_openOriginal'),
-  });
-  const uiLang = (): string => chrome.i18n?.getUILanguage?.() || 'en';
-  $('#dl-html').addEventListener('click', e =>
-    void busy(e.currentTarget as HTMLButtonElement, async () => {
-      const book = await buildBookData(
-        getSelectedScenes(),
-        session.meta,
-        img => resizeForBook(img, wantsDownscale()),
-      );
-      downloadBlob(buildHtmlBook(book, htmlLabels(), uiLang()), `${base()}_book.html`);
-    }));
+  // View as book — edition-neutral (no download).
   $('#view-book').addEventListener('click', () => {
     void chrome.storage.session
       .set({ [`book:${session.meta.id}`]: [...selected] })
@@ -227,6 +169,24 @@ void (async () => {
         }),
       );
   });
+
+  // Export/download UI is Full-edition only. In the Lite (Web Store) build the
+  // else-branch is statically dead, so download-panel + exporters + jspdf +
+  // pptxgenjs are tree-shaken out of the bundle entirely.
+  if (__WEBSTORE__) {
+    $('#export-heading').textContent = t('webstore_panel_heading');
+    ($('#install-full') as HTMLElement).hidden = false;
+    ($('#install-full-note') as HTMLElement).hidden = false;
+  } else {
+    $('#export-heading').textContent = t('dl_heading');
+    const { mountDownloadPanel } = await import('./download-panel');
+    mountDownloadPanel({
+      panel: $('#export-panel'),
+      getSelectedScenes,
+      meta: session.meta,
+      captionPresentation,
+    });
+  }
 
   if (captionPresentation.warningKey) banner(t(captionPresentation.warningKey));
   if (session.meta.truncated) {
