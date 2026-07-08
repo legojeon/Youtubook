@@ -25,7 +25,8 @@ Everything runs **100% in your browser** — no AI, no server, no video download
 
 - **Automatic scene detection** — HSV color-difference with an adaptive, PySceneDetect-style threshold; a sensitivity slider re-detects instantly.
 - **Narration from captions** — pulls the script from YouTube captions (manual preferred, auto-generated fallback) and aligns it to each scene.
-- **Multiple exports** — a self-contained **HTML article** (each scene's screenshot beside its transcript, deep-linking back to that moment in the video), PDF (one scene per page), PPTX (script in the speaker notes), and TXT (script only).
+- **View as book** — open the finished book in a new browser tab and read it straight away, no download needed. Each scene deep-links back to that moment in the video.
+- **Multiple export formats** — or save it: a self-contained **HTML article** (each scene's screenshot beside its transcript), PDF (one scene per page), PPTX (script in the speaker notes), and TXT (script only).
 - **Runs in the background** — switch to other tabs while it works; a notification tells you when it's done.
 - **Bilingual UI** — English and Korean, following your browser language.
 
@@ -39,7 +40,7 @@ Everything runs **100% in your browser** — no AI, no server, no video download
   <img src="assets/pick-scene.png" width="85%" alt="Youtubook results page: a grid of detected scenes with narration, a sensitivity slider, and export options">
 </p>
 
-4. **Next** → download as PDF / PPTX / HTML / TXT.
+4. **Next** → **Choose a format**: **View as book** to open it in a new tab, or download as HTML / PDF / PPTX / TXT.
 
 The script follows your selected scenes: each chosen scene carries all narration up to the next selected scene, so picking only some scenes never drops any of the story.
 
