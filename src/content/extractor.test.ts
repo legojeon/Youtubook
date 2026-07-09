@@ -250,17 +250,40 @@ describe('seekTo', () => {
   });
 });
 
+/** Like makeSeekingVideo, but only dispatches 'seeked' for targets the caller chooses —
+ *  lets a test make specific samples succeed while others time out into a skip. */
+function makeSelectiveSeekingVideo(shouldSeek: (target: number) => boolean): HTMLVideoElement {
+  const v = makeVideo();
+  const desc = Object.getOwnPropertyDescriptor(v, 'currentTime')!;
+  Object.defineProperty(v, 'currentTime', {
+    configurable: true,
+    get: desc.get,
+    set: (x: number) => {
+      desc.set!.call(v, x);
+      if (shouldSeek(x)) queueMicrotask(() => v.dispatchEvent(new Event('seeked')));
+    },
+  });
+  return v;
+}
+
+function stubCanvas2d(): void {
+  // jsdom has no canvas 2d — stub getContext so makeCanvas() succeeds (draw/read never run on skips).
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: () => {},
+    getImageData: () => ({ data: new Uint8ClampedArray(), width: 0, height: 0 }),
+  } as unknown as CanvasRenderingContext2D);
+}
+
 describe('scanVideo skip semantics', () => {
   it('pushes aligned placeholders when every seek is skipped, and aborts when broadly failing', async () => {
-    // jsdom has no canvas 2d — stub getContext so makeCanvas() succeeds (draw/read never run on skips).
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      drawImage: () => {},
-      getImageData: () => ({ data: new Uint8ClampedArray(), width: 0, height: 0 }),
-    } as unknown as CanvasRenderingContext2D);
+    stubCanvas2d();
     vi.useFakeTimers();
     try {
       makePlayer();
-      const v = makeVideo(); // seeked never fires → every seekTo returns false
+      const v = makeVideo();
+      // Seed off sample 0's target (0) so its "already there" fast path misses too —
+      // seeked never fires for any target, so every seekTo genuinely returns false.
+      v.currentTime = 5;
       Object.defineProperty(v, 'duration', { configurable: true, value: 20, writable: true });
       const onProgress = vi.fn();
       const run = scanVideo(v, 1, onProgress, new AbortController().signal);
@@ -268,6 +291,58 @@ describe('scanVideo skip semantics', () => {
       // advance enough for ~10 failed samples (each ~4 attempts of 15s+backoff)
       await vi.advanceTimersByTimeAsync(10 * 4 * 17_000);
       await rejects;
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('aligns scores/thumbs 1:1 with sample times, using an empty placeholder when the very first sample skips', async () => {
+    stubCanvas2d();
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,x');
+    // Deterministic nextFrame settle for the success samples (see the "waits out an ad" seekTo test for the same pattern).
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1; });
+    vi.useFakeTimers();
+    try {
+      makePlayer();
+      // Sample 0's target (0) never gets 'seeked' → skip; samples 1 and 2 (targets 1, 2) succeed.
+      const v = makeSelectiveSeekingVideo(target => target !== 0);
+      v.currentTime = 99; // seed off target 0 so sample 0's "already there" fast path misses too
+      Object.defineProperty(v, 'duration', { configurable: true, value: 3, writable: true });
+      const onProgress = vi.fn();
+      const run = scanVideo(v, 1, onProgress, new AbortController().signal);
+      // Let sample 0 exhaust its 4 timeout attempts (+backoff), ~65s, before it gives up and skips.
+      await vi.advanceTimersByTimeAsync(70_000);
+      const { scores, thumbs } = await run;
+      expect(scores.length).toBe(3);
+      expect(thumbs.length).toBe(3);
+      expect(scores[0]).toBe(0);    // skipped sample never forms a false cut
+      expect(thumbs[0]).toBe('');   // no prior thumbnail exists yet to reuse
+      expect(thumbs[1]).not.toBe('');
+      expect(thumbs[2]).not.toBe('');
+      expect(onProgress).toHaveBeenLastCalledWith(3, 3);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('reuses the previous thumbnail as the placeholder when a skip follows a success', async () => {
+    stubCanvas2d();
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,x');
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1; });
+    vi.useFakeTimers();
+    try {
+      makePlayer();
+      // Samples 0 and 1 (targets 0, 1) succeed; sample 2's target (2) never gets 'seeked' → skip.
+      const v = makeSelectiveSeekingVideo(target => target !== 2);
+      Object.defineProperty(v, 'duration', { configurable: true, value: 3, writable: true });
+      const onProgress = vi.fn();
+      const run = scanVideo(v, 1, onProgress, new AbortController().signal);
+      // Let sample 2 exhaust its 4 timeout attempts (+backoff), ~65s, before it gives up and skips.
+      await vi.advanceTimersByTimeAsync(70_000);
+      const { scores, thumbs } = await run;
+      expect(scores.length).toBe(3);
+      expect(thumbs.length).toBe(3);
+      expect(scores[2]).toBe(0);
+      expect(thumbs[1]).not.toBe('');
+      expect(thumbs[2]).toBe(thumbs[1]); // placeholder reuses the last real thumbnail
     } finally { vi.useRealTimers(); }
   });
 });
