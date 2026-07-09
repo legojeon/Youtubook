@@ -1,6 +1,7 @@
 import { frameContentScore } from '../core/diff';
 import { MAX_SCAN_SAMPLES } from '../core/limits';
 import type { RepRef } from '../messages';
+import { t } from '../ui/i18n';
 
 const NEVER_ABORT = new AbortController().signal;
 
@@ -273,6 +274,7 @@ export async function scanVideo(
   intervalSec: number,
   onProgress: (done: number, total: number) => void,
   signal: AbortSignal,
+  ad?: AdUi,
 ): Promise<ScanResult> {
   await waitForVideoDimensions(video, signal);
   const times = buildSampleTimes(video.duration, intervalSec);
@@ -287,15 +289,30 @@ export async function scanVideo(
   const scores: number[] = [];
   const thumbs: string[] = [];
   let prev: ImageData | null = null;
+  let totalSkips = 0;
+  let consecutiveSkips = 0;
   for (let i = 0; i < times.length; i++) {
     if (signal.aborted) throw aborted();
-    await seekTo(video, times[i], signal);
-    thumbCtx.drawImage(video, 0, 0, thumbW, thumbH);
-    diffCtx.drawImage(thumbCv, 0, 0, diffW, diffH);
-    const cur = diffCtx.getImageData(0, 0, diffW, diffH); // 오염 시 SecurityError 전파
-    scores.push(prev ? frameContentScore(prev, cur) : 0);
-    thumbs.push(thumbCv.toDataURL('image/jpeg', 0.6));
-    prev = cur;
+    const ok = await seekTo(video, times[i], signal, ad);
+    if (ok) {
+      thumbCtx.drawImage(video, 0, 0, thumbW, thumbH);
+      diffCtx.drawImage(thumbCv, 0, 0, diffW, diffH);
+      const cur = diffCtx.getImageData(0, 0, diffW, diffH); // 오염 시 SecurityError 전파
+      scores.push(prev ? frameContentScore(prev, cur) : 0);
+      thumbs.push(thumbCv.toDataURL('image/jpeg', 0.6));
+      prev = cur;
+      consecutiveSkips = 0;
+    } else {
+      // Preserve index↔time alignment: 0 score never forms a false cut; reuse the
+      // last good thumbnail so the fallback preview isn't blank. prev is unchanged.
+      scores.push(0);
+      thumbs.push(thumbs.length ? thumbs[thumbs.length - 1] : '');
+      totalSkips++;
+      consecutiveSkips++;
+      if (shouldAbortForSkips(consecutiveSkips, totalSkips, i + 1)) {
+        throw new Error(t('error_seekUnstable'));
+      }
+    }
     onProgress(i + 1, times.length);
   }
   return { scores, thumbs };

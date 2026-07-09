@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isAdShowing, clickSkipIfPresent, shouldAbortForSkips, settleAds, seekOnce, seekTo } from './extractor';
+import { isAdShowing, clickSkipIfPresent, shouldAbortForSkips, settleAds, seekOnce, seekTo, scanVideo } from './extractor';
 
 afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -247,5 +247,27 @@ describe('seekTo', () => {
     makePlayer();
     const ac = new AbortController(); ac.abort();
     await expect(seekTo(makeVideo(), 50, ac.signal)).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('scanVideo skip semantics', () => {
+  it('pushes aligned placeholders when every seek is skipped, and aborts when broadly failing', async () => {
+    // jsdom has no canvas 2d — stub getContext so makeCanvas() succeeds (draw/read never run on skips).
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: () => {},
+      getImageData: () => ({ data: new Uint8ClampedArray(), width: 0, height: 0 }),
+    } as unknown as CanvasRenderingContext2D);
+    vi.useFakeTimers();
+    try {
+      makePlayer();
+      const v = makeVideo(); // seeked never fires → every seekTo returns false
+      Object.defineProperty(v, 'duration', { configurable: true, value: 20, writable: true });
+      const onProgress = vi.fn();
+      const run = scanVideo(v, 1, onProgress, new AbortController().signal);
+      const rejects = expect(run).rejects.toThrow('error_seekUnstable');
+      // advance enough for ~10 failed samples (each ~4 attempts of 15s+backoff)
+      await vi.advanceTimersByTimeAsync(10 * 4 * 17_000);
+      await rejects;
+    } finally { vi.useRealTimers(); }
   });
 });

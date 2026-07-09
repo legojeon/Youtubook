@@ -59,5 +59,6 @@
   "stage_scan": { "message": "Scanning scenes…" },
   "stage_capture": { "message": "Capturing scenes…" },
   "error_tooLong": { "message": "Videos up to 2 hours are supported." },
-  "error_liveUnsupported": { "message": "Live and premiere videos aren't supported." }
+  "error_liveUnsupported": { "message": "Live and premiere videos aren't supported." },
+  "error_seekUnstable": { "message": "Extraction couldn’t finish due to an unstable connection — please try again in a moment." }
 }
