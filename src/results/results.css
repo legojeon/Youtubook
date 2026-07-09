@@ -1,7 +1,10 @@
 body { margin:0; background:var(--page); color:var(--body); font-family:var(--font); font-size:14px; line-height:1.4; }
 
 header { position:sticky; top:0; background:var(--canvas); border-bottom:1px solid var(--hairline); z-index:10; }
-.bar { display:flex; align-items:center; gap:12px; padding:12px 24px; flex-wrap:wrap; max-width:1160px; margin:0 auto; }
+.bar { display:flex; flex-direction:column; gap:10px; padding:12px 24px; max-width:1160px; margin:0 auto; }
+/* Title on its own row so a long title just truncates (…) instead of pushing the controls to wrap. */
+.title-row { display:flex; align-items:baseline; gap:10px; min-width:0; }
+.controls-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 h1 { font-size:20px; font-weight:700; letter-spacing:-0.5px; margin:0; color:var(--ink); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .count { color:var(--mute); font-size:14px; }
 .spacer { flex:1; }
