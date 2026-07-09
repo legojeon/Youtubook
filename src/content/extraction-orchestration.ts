@@ -6,7 +6,7 @@ import {
 } from '../core/limits';
 import type { PlayerInfo } from './bridge-client';
 import { fetchCaptions } from './captions-fetch';
-import { scanVideo } from './extractor';
+import { scanVideo, type AdUi } from './extractor';
 
 export function extractionDurationError(isLive: boolean, durationSec: number): string | null {
   if (isLive || !Number.isFinite(durationSec) || durationSec <= 0) return 'error_liveUnsupported';
@@ -33,6 +33,7 @@ export interface PrepareCaptionedScanInput {
   onProgress: (done: number, total: number) => void;
   onStage: (stage: string) => void;
   signal: AbortSignal;
+  ad?: AdUi;
 }
 
 export interface PrepareCaptionedScanDeps {
@@ -80,6 +81,7 @@ export async function prepareCaptionedScan(
     sampleIntervalSec,
     input.onProgress,
     input.signal,
+    input.ad,
   );
   const detection = deps.detectScenes(scan.scores, {
     ...DEFAULT_DETECT,

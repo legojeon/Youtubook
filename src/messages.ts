@@ -22,6 +22,8 @@ export type Msg =
   // 콘텐츠 → SW: 추출 진행상황/종료 (배지·상태용)
   | { type: 'EXTRACTION_PROGRESS'; percent: number; stage: string }
   | { type: 'EXTRACTION_ENDED'; reason: 'cancelled' | 'error' }
+  // 콘텐츠 → SW: 광고가 25초 넘게 안 끝남 → 사용자에게 건너뛰기 요청 알림
+  | { type: 'AD_STUCK' }
   // 팝업 → SW: 상태 조회 / 취소. CANCEL_EXTRACTION은 SW → 콘텐츠로도 재사용된다.
   | { type: 'GET_EXTRACTION_STATUS' }
   | { type: 'CANCEL_EXTRACTION' };

@@ -3,7 +3,7 @@ import { repKey, type SessionMeta } from '../core/types';
 import type { Msg, MsgResponse } from '../messages';
 import { getPlayerInfo, setMaxQuality } from './bridge-client';
 import {
-  captureFrames, restorePlayerState, savePlayerState, waitForNoAd,
+  captureFrames, restorePlayerState, savePlayerState, waitForNoAd, type AdUi,
 } from './extractor';
 import {
   extractionDurationError,
@@ -84,6 +84,10 @@ async function runExtraction(): Promise<void> {
     overlay.setProgress(done, total);
     reporter.report(total ? (done / total) * 100 : 0, stageKey);
   };
+  const ad: AdUi = {
+    onWait: waiting => overlay.setStage(t(waiting ? 'stage_adsWaiting' : stageKey)),
+    onStuck: () => { void send({ type: 'AD_STUCK' }).catch(() => {}); },
+  };
   const video = findVideo();
   try {
     if (!location.pathname.startsWith('/watch') || !video) {
@@ -118,6 +122,7 @@ async function runExtraction(): Promise<void> {
         onProgress,
         onStage: key => setStage(key),
         signal: ac.signal,
+        ad,
       });
 
       const meta: SessionMeta = {
@@ -150,10 +155,11 @@ async function runExtraction(): Promise<void> {
         (d, total) => onProgress(d, total),
         async (key, dataUrl) => { await sendSessionImage(send, meta.id, key, dataUrl); },
         ac.signal,
+        ad,
       );
       result = await send({ type: 'SESSION_COMMIT', sessionId: meta.id });
     } finally {
-      await restorePlayerState(video, state);
+      await restorePlayerState(video, state, ac.signal);
     }
     if (!result?.ok) throw new Error(result?.reason ?? t('banner_saveFail'));
     overlay.remove();
