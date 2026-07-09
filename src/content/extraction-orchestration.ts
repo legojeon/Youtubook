@@ -34,6 +34,7 @@ export interface PrepareCaptionedScanInput {
   onStage: (stage: string) => void;
   signal: AbortSignal;
   ad?: AdUi;
+  getVideo?: () => HTMLVideoElement | null;
 }
 
 export interface PrepareCaptionedScanDeps {
@@ -82,6 +83,7 @@ export async function prepareCaptionedScan(
     input.onProgress,
     input.signal,
     input.ad,
+    input.getVideo,
   );
   const detection = deps.detectScenes(scan.scores, {
     ...DEFAULT_DETECT,

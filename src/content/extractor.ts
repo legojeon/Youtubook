@@ -269,12 +269,29 @@ export interface ScanResult {
   thumbs: string[];
 }
 
+/**
+ * Re-acquire the live video element for a seek. A mid-roll ad makes YouTube swap the
+ * main `<video>` element, so a reference captured once at start goes stale (its `seeked`
+ * never fires again → the scan freezes). `getVideo` re-queries the current element every
+ * sample. Also re-pause/mute: an ad resumes playback, and seeking a playing video stalls.
+ */
+function liveVideo(
+  getVideo: (() => HTMLVideoElement | null) | undefined,
+  fallback: HTMLVideoElement,
+): HTMLVideoElement {
+  const v = getVideo?.() ?? fallback;
+  if (!v.paused) v.pause();
+  if (!v.muted) v.muted = true;
+  return v;
+}
+
 export async function scanVideo(
   video: HTMLVideoElement,
   intervalSec: number,
   onProgress: (done: number, total: number) => void,
   signal: AbortSignal,
   ad?: AdUi,
+  getVideo?: () => HTMLVideoElement | null,
 ): Promise<ScanResult> {
   await waitForVideoDimensions(video, signal);
   const times = buildSampleTimes(video.duration, intervalSec);
@@ -293,9 +310,10 @@ export async function scanVideo(
   let consecutiveSkips = 0;
   for (let i = 0; i < times.length; i++) {
     if (signal.aborted) throw aborted();
-    const ok = await seekTo(video, times[i], signal, ad);
+    const v = liveVideo(getVideo, video);
+    const ok = await seekTo(v, times[i], signal, ad);
     if (ok) {
-      thumbCtx.drawImage(video, 0, 0, thumbW, thumbH);
+      thumbCtx.drawImage(v, 0, 0, thumbW, thumbH);
       diffCtx.drawImage(thumbCv, 0, 0, diffW, diffH);
       const cur = diffCtx.getImageData(0, 0, diffW, diffH); // 오염 시 SecurityError 전파
       scores.push(prev ? frameContentScore(prev, cur) : 0);
@@ -325,14 +343,16 @@ export async function captureFrames(
   onFrame: (key: string, dataUrl: string) => Promise<void>,
   signal: AbortSignal,
   ad?: AdUi,
+  getVideo?: () => HTMLVideoElement | null,
 ): Promise<void> {
   await waitForVideoDimensions(video, signal);
   const [, ctx] = makeCanvas(video.videoWidth, video.videoHeight);
   for (let i = 0; i < reps.length; i++) {
     if (signal.aborted) throw aborted();
-    const ok = await seekTo(video, reps[i].repSec, signal, ad);
+    const v = liveVideo(getVideo, video);
+    const ok = await seekTo(v, reps[i].repSec, signal, ad);
     if (ok) {
-      ctx.drawImage(video, 0, 0);
+      ctx.drawImage(v, 0, 0);
       await onFrame(reps[i].key, ctx.canvas.toDataURL('image/jpeg', 0.9));
     }
     // else: skip — imageFor() falls back to the scan thumbnail (book-data.ts:19)

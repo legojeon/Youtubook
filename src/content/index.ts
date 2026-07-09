@@ -123,6 +123,7 @@ async function runExtraction(): Promise<void> {
         onStage: key => setStage(key),
         signal: ac.signal,
         ad,
+        getVideo: findVideo,
       });
 
       const meta: SessionMeta = {
@@ -156,10 +157,12 @@ async function runExtraction(): Promise<void> {
         async (key, dataUrl) => { await sendSessionImage(send, meta.id, key, dataUrl); },
         ac.signal,
         ad,
+        findVideo,
       );
       result = await send({ type: 'SESSION_COMMIT', sessionId: meta.id });
     } finally {
-      await restorePlayerState(video, state, ac.signal);
+      // Restore the CURRENT element — a mid-roll ad may have swapped it mid-run.
+      await restorePlayerState(findVideo() ?? video, state, ac.signal);
     }
     if (!result?.ok) throw new Error(result?.reason ?? t('banner_saveFail'));
     overlay.remove();

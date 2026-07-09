@@ -348,6 +348,33 @@ describe('scanVideo skip semantics', () => {
       expect(thumbs[2]).toBe(thumbs[1]); // placeholder reuses the last real thumbnail
     } finally { vi.useRealTimers(); }
   });
+
+  it('re-acquires the live element via getVideo each sample and pauses it (a mid-roll ad swaps the element)', async () => {
+    stubCanvas2d();
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:jpg;x');
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1; });
+    makePlayer();
+
+    // The reference captured at start goes stale after an ad swaps the element: its seeks never fire.
+    const stale = makeVideo();
+    stale.currentTime = 99;
+    Object.defineProperty(stale, 'duration', { configurable: true, value: 3, writable: true });
+
+    // getVideo hands back the CURRENT (live) element, which is playing and seeks normally.
+    const live = makeSelectiveSeekingVideo(() => true);
+    let livePaused = false;
+    Object.defineProperty(live, 'paused', { configurable: true, get: () => livePaused });
+    const pauseSpy = vi.spyOn(live, 'pause').mockImplementation(() => { livePaused = true; });
+    const getVideo = vi.fn(() => live);
+
+    const { thumbs } = await scanVideo(stale, 1, () => {}, new AbortController().signal, undefined, getVideo);
+
+    expect(getVideo).toHaveBeenCalled();
+    expect(pauseSpy).toHaveBeenCalled();              // the resumed (playing) element was re-paused before seeking
+    expect(thumbs).toHaveLength(3);
+    expect(thumbs.every(t => t !== '')).toBe(true);   // every sample captured via the live element — none frozen/skipped
+  });
 });
 
 describe('captureFrames skip', () => {
