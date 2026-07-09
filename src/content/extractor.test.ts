@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isAdShowing, clickSkipIfPresent, shouldAbortForSkips, settleAds, seekOnce, seekTo, scanVideo } from './extractor';
+import { isAdShowing, clickSkipIfPresent, shouldAbortForSkips, settleAds, seekOnce, seekTo, scanVideo, captureFrames } from './extractor';
 
 afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -343,6 +343,24 @@ describe('scanVideo skip semantics', () => {
       expect(scores[2]).toBe(0);
       expect(thumbs[1]).not.toBe('');
       expect(thumbs[2]).toBe(thumbs[1]); // placeholder reuses the last real thumbnail
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('captureFrames skip', () => {
+  it('does not call onFrame for a rep whose seek fails, and still completes', async () => {
+    stubCanvas2d();
+    vi.useFakeTimers();
+    try {
+      makePlayer();
+      const v = makeVideo(); // seeked never fires → seekTo returns false
+      const onFrame = vi.fn(async () => {});
+      const onProgress = vi.fn();
+      const run = captureFrames(v, [{ key: '0.50', repSec: 0.5 }], onProgress, onFrame, new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(4 * 17_000); // exhaust one rep's retries
+      await run;
+      expect(onFrame).not.toHaveBeenCalled();
+      expect(onProgress).toHaveBeenLastCalledWith(1, 1);
     } finally { vi.useRealTimers(); }
   });
 });

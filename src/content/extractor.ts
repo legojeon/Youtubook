@@ -324,14 +324,18 @@ export async function captureFrames(
   onProgress: (done: number, total: number) => void,
   onFrame: (key: string, dataUrl: string) => Promise<void>,
   signal: AbortSignal,
+  ad?: AdUi,
 ): Promise<void> {
   await waitForVideoDimensions(video, signal);
   const [, ctx] = makeCanvas(video.videoWidth, video.videoHeight);
   for (let i = 0; i < reps.length; i++) {
     if (signal.aborted) throw aborted();
-    await seekTo(video, reps[i].repSec, signal);
-    ctx.drawImage(video, 0, 0);
-    await onFrame(reps[i].key, ctx.canvas.toDataURL('image/jpeg', 0.9));
+    const ok = await seekTo(video, reps[i].repSec, signal, ad);
+    if (ok) {
+      ctx.drawImage(video, 0, 0);
+      await onFrame(reps[i].key, ctx.canvas.toDataURL('image/jpeg', 0.9));
+    }
+    // else: skip — imageFor() falls back to the scan thumbnail (book-data.ts:19)
     onProgress(i + 1, reps.length);
   }
 }
