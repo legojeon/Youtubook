@@ -41,6 +41,46 @@ export function nextFrame(): Promise<void> {
 // 스파이크가 실측됨(480p·빠른 회선에서도 ~4s) — 여유 있는 타임아웃 + 1회 재시도로 흡수한다.
 const SEEK_TIMEOUT_MS = 15_000;
 
+const MAX_SEEK_ATTEMPTS = 4;
+const AD_POLL_MS = 500;
+const AD_WAIT_BUDGET_MS = 90_000;
+const AD_NOTIFY_AFTER_MS = 25_000;
+const SKIP_ABORT_STREAK = 8;
+const SKIP_ABORT_RATIO = 0.3;
+// YouTube renames the skip button across UI revisions — try a set; a stale selector
+// degrades to passive wait + the 25s notification fallback, never a crash.
+const SKIP_SELECTORS = [
+  '.ytp-ad-skip-button-modern',
+  '.ytp-ad-skip-button',
+  '.ytp-skip-ad-button',
+];
+
+/** True while YouTube is showing/entering an ad (mid-roll included). */
+export function isAdShowing(player: Element | null): boolean {
+  return !!player && (
+    player.classList.contains('ad-showing') ||
+    player.classList.contains('ad-interrupting')
+  );
+}
+
+/** Click the first VISIBLE "Skip" button, if any. Best-effort — no-op otherwise. */
+export function clickSkipIfPresent(player: Element | null): void {
+  if (!player) return;
+  for (const sel of SKIP_SELECTORS) {
+    const btn = player.querySelector<HTMLElement>(sel);
+    if (btn && btn.offsetParent !== null) { btn.click(); return; }
+  }
+}
+
+/** Bail out of a scan only when seeks are broadly failing, not on a stray skip. */
+export function shouldAbortForSkips(
+  consecutiveSkips: number, totalSkips: number, done: number,
+): boolean {
+  if (consecutiveSkips >= SKIP_ABORT_STREAK) return true;
+  if (done >= 10 && totalSkips / done > SKIP_ABORT_RATIO) return true;
+  return false;
+}
+
 function seekOnce(video: HTMLVideoElement, target: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
