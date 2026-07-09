@@ -81,6 +81,52 @@ export function shouldAbortForSkips(
   return false;
 }
 
+export interface AdUi {
+  onWait?: (waiting: boolean) => void;  // overlay "ad waiting" ↔ resume
+  onStuck?: () => void;                 // once per ad episode after AD_NOTIFY_AFTER_MS
+}
+
+/** Abortable delay. Rejects with AbortError if the signal is/becomes aborted. */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(aborted()); return; }
+    const cleanup = () => { clearTimeout(timer); signal.removeEventListener('abort', onAbort); };
+    const onAbort = () => { cleanup(); reject(aborted()); };
+    const timer = setTimeout(() => { cleanup(); resolve(); }, ms);
+    signal.addEventListener('abort', onAbort);
+  });
+}
+
+/**
+ * Wait out any ad, auto-clicking "Skip" each poll. Returns ms waited (0 if no ad).
+ * `notified` is local, so onStuck fires at most once per ad episode (no poll spam);
+ * settleAds is called once per ad, so multiple ads each get their own judgement.
+ */
+export async function settleAds(
+  video: HTMLVideoElement,
+  signal: AbortSignal,
+  ad: AdUi | undefined,
+  budgetMs: number,
+): Promise<number> {
+  const player = document.getElementById('movie_player');
+  if (!isAdShowing(player) || budgetMs <= 0) return 0;
+  ad?.onWait?.(true);
+  let waited = 0;
+  let notified = false;
+  try {
+    while (isAdShowing(player) && waited < budgetMs) {
+      if (signal.aborted) throw aborted();
+      clickSkipIfPresent(player);
+      if (!notified && waited >= AD_NOTIFY_AFTER_MS) { ad?.onStuck?.(); notified = true; }
+      await sleep(AD_POLL_MS, signal);
+      waited += AD_POLL_MS;
+    }
+  } finally {
+    ad?.onWait?.(false);
+  }
+  return waited;
+}
+
 function seekOnce(video: HTMLVideoElement, target: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
