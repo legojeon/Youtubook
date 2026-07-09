@@ -75,6 +75,11 @@ async function runExtraction(): Promise<void> {
   let navigated = false;
   const onNavigate = () => { navigated = true; ac.abort(); };
   document.addEventListener('yt-navigate-start', onNavigate);
+  // The definitive check: compare the live ?v= to the one we started on. This catches a video
+  // change even when yt-navigate-start didn't fire (or a frame upload raced it), so a stray
+  // 'Sender URL does not match' rejection never surfaces as an error.
+  const startVideoId = new URLSearchParams(location.search).get('v');
+  const videoChanged = () => new URLSearchParams(location.search).get('v') !== startVideoId;
   const overlay = createOverlay(() => ac.abort());
   // fire-and-forget: progress sends have no responder, so swallow the promise.
   const reporter = createProgressReporter(m => { void send(m).catch(() => {}); });
@@ -175,10 +180,10 @@ async function runExtraction(): Promise<void> {
     overlay.remove();
     // Success: the SW commit path marks done (badge ✓ + notification). No ENDED needed.
   } catch (err) {
-    // A navigation away (navigated) counts as cancelled — the session's video is gone, so any
-    // error it produced (AbortError, or a 'Sender URL does not match' rejection that raced the
-    // abort) shouldn't surface as a failure.
-    const cancelled = navigated || (err instanceof DOMException && err.name === 'AbortError');
+    // A navigation away counts as cancelled — the session's video is gone, so any error it
+    // produced (AbortError, or a 'Sender URL does not match' rejection that raced the abort)
+    // shouldn't surface as a failure. Check both the event flag and the live ?v=.
+    const cancelled = navigated || videoChanged() || (err instanceof DOMException && err.name === 'AbortError');
     if (cancelled) {
       overlay.remove();
     } else if (err instanceof DOMException && err.name === 'SecurityError') {
