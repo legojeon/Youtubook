@@ -5,7 +5,7 @@ const isWebstore = process.env.VITE_EDITION === 'webstore';
 export default defineManifest({
   manifest_version: 3,
   name: isWebstore ? 'Youtubook Lite' : 'Youtubook Full',
-  version: '0.1.0',
+  version: '0.1.1',
   default_locale: 'en',
   description: '__MSG_appDesc__',
   icons: {
