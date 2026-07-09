@@ -712,10 +712,12 @@ export async function finalizePendingSession(
         transaction.objectStore(PENDING_FRAME_STORE),
         sessionId,
       );
+      // Tolerate missing rep images. captureFrames skips frames it can't seek (mid-roll ads,
+      // unreadable end-of-video segments) and the results page falls back to the scan thumbnail
+      // for them (book-data.ts imageFor). Failing the whole commit over one skipped frame would
+      // discard the entire extraction — the opposite of the skip-and-continue design. Thumbnails
+      // (the fallback) are still required complete, enforced above.
       const images = Object.fromEntries(records.map(record => [record.key, record.dataUrl]));
-      if (pending.ranges.some(range => !Object.hasOwn(images, repKey(range.repSec)))) {
-        throw new Error('장면 이미지 전송이 완료되지 않았습니다.');
-      }
       const { updatedAt: _updatedAt, ...withoutTimestamp } = pending;
       const finalized: SessionData = { ...withoutTimestamp, images };
       await requestResult(sessionStore.put(finalized));
