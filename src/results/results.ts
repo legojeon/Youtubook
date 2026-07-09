@@ -176,6 +176,7 @@ void (async () => {
   // else-branch is statically dead, so download-panel + exporters + jspdf +
   // pptxgenjs are tree-shaken out of the bundle entirely.
   if (__WEBSTORE__) {
+    $('#export-panel').classList.add('webstore');
     $('#export-heading').textContent = t('webstore_panel_heading');
     ($('#install-full') as HTMLElement).hidden = false;
     ($('#install-full-note') as HTMLElement).hidden = false;

@@ -45,3 +45,7 @@ h1 { font-size:20px; font-weight:700; letter-spacing:-0.5px; margin:0; color:var
   font-size: 13px;
   opacity: 0.75;
 }
+/* 웹스토어(Lite) 에디션: 버튼 2개(책으로 보기·GitHub)만 있으므로 가운데 정렬 */
+#export-panel.webstore .dl-grid { display:flex; flex-wrap:wrap; justify-content:center; }
+#export-panel.webstore .dl { flex:0 1 220px; }
+#export-panel.webstore .dl-note { text-align:center; }
