@@ -60,5 +60,7 @@
   "stage_capture": { "message": "장면 캡처 중…" },
   "error_tooLong": { "message": "최대 2시간 영상까지 지원합니다." },
   "error_liveUnsupported": { "message": "라이브/프리미어 영상은 지원하지 않습니다." },
-  "error_seekUnstable": { "message": "네트워크가 불안정해 추출을 완료할 수 없습니다 — 잠시 후 다시 시도해주세요." }
+  "error_seekUnstable": { "message": "네트워크가 불안정해 추출을 완료할 수 없습니다 — 잠시 후 다시 시도해주세요." },
+  "notify_adTitle": { "message": "광고가 재생 중입니다" },
+  "notify_adBody": { "message": "YouTube 탭에서 '건너뛰기'를 눌러 추출을 계속하세요." }
 }

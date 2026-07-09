@@ -6,6 +6,7 @@ import { createSessionMessageHandler } from './session-protocol';
 import { t } from '../ui/i18n';
 
 const resultsUrl = chrome.runtime.getURL('src/results/results.html');
+const AD_NOTICE_ID = 'youtubook-ad'; // distinct from completion notifications (id === sessionId)
 
 const tabDeps = {
   query: (queryInfo: chrome.tabs.QueryInfo) => chrome.tabs.query(queryInfo),
@@ -53,10 +54,20 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
   const m = msg as Msg;
   switch (m.type) {
     case 'EXTRACTION_PROGRESS':
+      void chrome.notifications.clear(AD_NOTICE_ID); // ad (if any) has resolved — scan resumed
       extraction.onProgress(m.percent, m.stage, sender.tab?.id ?? -1);
       return false;
     case 'EXTRACTION_ENDED':
+      void chrome.notifications.clear(AD_NOTICE_ID);
       extraction.onEnded();
+      return false;
+    case 'AD_STUCK':
+      void chrome.notifications.create(AD_NOTICE_ID, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+        title: t('notify_adTitle'),
+        message: t('notify_adBody'),
+      });
       return false;
     case 'GET_EXTRACTION_STATUS': {
       const statusResponse: ExtractionStatus = extraction.getStatus();
@@ -79,9 +90,14 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
   }
 });
 
-// Clicking the completion notification focuses the results tab (notificationId === sessionId).
-chrome.notifications.onClicked.addListener(sessionId => {
-  void openOrFocusResults(sessionId, resultsUrl, tabDeps, false);
+// Completion notification (id === sessionId) → focus results. Ad notification → focus the YouTube tab.
+chrome.notifications.onClicked.addListener(id => {
+  if (id === AD_NOTICE_ID) {
+    const tabId = extraction.getTabId();
+    if (tabId >= 0) void chrome.tabs.update(tabId, { active: true });
+    return;
+  }
+  void openOrFocusResults(id, resultsUrl, tabDeps, false);
 });
 
 // If the source tab closes mid-extraction, its content script dies without
