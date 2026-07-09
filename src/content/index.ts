@@ -1,7 +1,7 @@
 import { DEFAULT_DETECT } from '../core/detect';
 import { repKey, type SessionMeta } from '../core/types';
 import type { Msg, MsgResponse } from '../messages';
-import { getPlayerInfo, setMaxQuality } from './bridge-client';
+import { getPlayerInfo } from './bridge-client';
 import {
   captureFrames, restorePlayerState, savePlayerState, waitForNoAd, type AdUi,
 } from './extractor';
@@ -45,7 +45,6 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r: M
       restorePlayerState: (video, state) =>
         restorePlayerState(video, state as ReturnType<typeof savePlayerState>),
       waitForNoAd,
-      setMaxQuality,
       captureFrames,
       send,
     }).then(sendResponse);
@@ -149,7 +148,10 @@ async function runExtraction(): Promise<void> {
       }, scan.thumbs);
 
       setStage('stage_capture');
-      await setMaxQuality().catch(() => {});
+      // Capture at the quality that's already loaded — don't force the player to the max
+      // (e.g. 4K). A quality switch resets the media source, and on a flaky network the new
+      // segments may never load (readyState stuck at HAVE_METADATA), stalling every capture
+      // seek into a low-res scan-thumbnail fallback. capture resolution is capped in captureFrames.
       await captureFrames(
         video,
         det.ranges.map(r => ({ key: repKey(r.repSec), repSec: r.repSec })),

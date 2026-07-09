@@ -365,6 +365,8 @@ export async function scanVideo(
   return { scores, thumbs };
 }
 
+const MAX_CAPTURE_WIDTH = 1920; // 1080p — caps capture frame size (quality + storage budget)
+
 export async function captureFrames(
   video: HTMLVideoElement,
   reps: RepRef[],
@@ -375,13 +377,19 @@ export async function captureFrames(
   getVideo?: () => HTMLVideoElement | null,
 ): Promise<void> {
   await waitForVideoDimensions(video, signal);
-  const [, ctx] = makeCanvas(video.videoWidth, video.videoHeight);
+  // Cap capture at 1080p (1920px wide). It's plenty for a picture book and keeps each JPEG small
+  // enough to fit the storage budget even when the source plays at 4K — a full-res 4K frame is
+  // several MB and a whole session of them overflows the pending payload limit.
+  const scale = Math.min(1, MAX_CAPTURE_WIDTH / (video.videoWidth || MAX_CAPTURE_WIDTH));
+  const cw = Math.max(1, Math.round(video.videoWidth * scale));
+  const ch = Math.max(1, Math.round(video.videoHeight * scale));
+  const [, ctx] = makeCanvas(cw, ch);
   for (let i = 0; i < reps.length; i++) {
     if (signal.aborted) throw aborted();
     const v = liveVideo(getVideo, video);
     const ok = await seekTo(v, reps[i].repSec, signal, ad);
     if (ok) {
-      ctx.drawImage(v, 0, 0);
+      ctx.drawImage(v, 0, 0, cw, ch); // scale the frame into the capped canvas
       await onFrame(reps[i].key, ctx.canvas.toDataURL('image/jpeg', 0.9));
     }
     // else: skip — imageFor() falls back to the scan thumbnail (book-data.ts:19)

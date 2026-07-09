@@ -11,7 +11,6 @@ export interface RecaptureDeps {
   savePlayerState: (video: HTMLVideoElement) => unknown;
   restorePlayerState: (video: HTMLVideoElement, state: unknown) => Promise<void>;
   waitForNoAd: (onWaiting: () => void, signal: AbortSignal) => Promise<void>;
-  setMaxQuality: () => Promise<unknown>;
   captureFrames: (
     video: HTMLVideoElement,
     reps: RepRef[],
@@ -41,7 +40,6 @@ export async function runRecapture(
   video.pause();
   try {
     await deps.waitForNoAd(() => {}, ac.signal);
-    await deps.setMaxQuality().catch(() => {});
     await deps.captureFrames(
       video,
       msg.reps,

@@ -21,7 +21,6 @@ function deps(overrides: Partial<RecaptureDeps> = {}): RecaptureDeps {
     savePlayerState: () => ({}) as ReturnType<RecaptureDeps['savePlayerState']>,
     restorePlayerState: async () => {},
     waitForNoAd: async () => {},
-    setMaxQuality: async () => {},
     captureFrames: async (_video, _reps, _progress, onFrame) => {
       await onFrame('0.50', 'data:image/jpeg;base64,/9j/2Q==');
     },
