@@ -1,4 +1,5 @@
 import type { Msg, MsgResponse, RepRef } from '../messages';
+import type { AdUi } from './extractor';
 
 export interface RecaptureDeps {
   findVideo: () => HTMLVideoElement | null;
@@ -17,6 +18,7 @@ export interface RecaptureDeps {
     onProgress: (done: number, total: number) => void,
     onFrame: (key: string, dataUrl: string) => Promise<void>,
     signal: AbortSignal,
+    ad?: AdUi,
   ) => Promise<void>;
   send: (message: Msg) => Promise<MsgResponse>;
 }
@@ -54,6 +56,7 @@ export async function runRecapture(
         if (!response.ok) throw new Error(response.reason ?? '재캡처 프레임 저장 실패');
       },
       ac.signal,
+      { onStuck: () => { void deps.send({ type: 'AD_STUCK' }).catch(() => {}); } },
     );
     return { ok: true };
   } catch (error) {

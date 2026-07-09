@@ -44,4 +44,11 @@ describe('runRecapture', () => {
       dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
     });
   });
+
+  it('passes an onStuck that posts AD_STUCK to the service worker', async () => {
+    const send = vi.fn(async () => ({ ok: true }));
+    const captureFrames = vi.fn(async (_v, _r, _p, _f, _s, ad) => { ad?.onStuck?.(); });
+    await runRecapture(msg, deps({ send, captureFrames }));
+    expect(send).toHaveBeenCalledWith({ type: 'AD_STUCK' });
+  });
 });
