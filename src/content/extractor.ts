@@ -50,6 +50,10 @@ const AD_WAIT_BUDGET_MS = 90_000;
 const AD_NOTIFY_AFTER_MS = 25_000;
 const SKIP_ABORT_STREAK = 8;
 const SKIP_ABORT_RATIO = 0.3;
+// Keep every seek this far from the end. YouTube polls currentTime and treats a position at/near
+// duration as "ended" — it then auto-advances to the next video, changing the tab's ?v= and
+// invalidating the session ('Sender URL does not match'). A margin keeps seeks out of that zone.
+const END_SAFETY_MARGIN_SEC = 2;
 // YouTube renames the skip button across UI revisions — try a set; a stale selector
 // degrades to passive wait + the 25s notification fallback, never a crash.
 const SKIP_SELECTORS = [
@@ -188,7 +192,7 @@ export function seekOnce(
  */
 export function clampSeekTarget(t: number, duration: number): number {
   if (!Number.isFinite(t)) return NaN;
-  const upper = Number.isFinite(duration) ? Math.max(0, duration - 0.1) : Math.max(0, t);
+  const upper = Number.isFinite(duration) ? Math.max(0, duration - END_SAFETY_MARGIN_SEC) : Math.max(0, t);
   return Math.min(Math.max(t, 0), upper);
 }
 

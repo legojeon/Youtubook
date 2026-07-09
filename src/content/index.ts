@@ -68,7 +68,12 @@ async function runExtraction(): Promise<void> {
   running = true;
   const ac = new AbortController();
   currentAbort = () => ac.abort();
-  const onNavigate = () => ac.abort();
+  // If the tab navigates to another video mid-run (e.g. YouTube autoplay after the video ends),
+  // the session is invalid — treat it as a quiet cancel, not a scary error. A frame upload can
+  // race the abort and be rejected by the SW ('Sender URL does not match'); the flag makes the
+  // catch below treat that as cancelled too.
+  let navigated = false;
+  const onNavigate = () => { navigated = true; ac.abort(); };
   document.addEventListener('yt-navigate-start', onNavigate);
   const overlay = createOverlay(() => ac.abort());
   // fire-and-forget: progress sends have no responder, so swallow the promise.
@@ -170,7 +175,10 @@ async function runExtraction(): Promise<void> {
     overlay.remove();
     // Success: the SW commit path marks done (badge ✓ + notification). No ENDED needed.
   } catch (err) {
-    const cancelled = err instanceof DOMException && err.name === 'AbortError';
+    // A navigation away (navigated) counts as cancelled — the session's video is gone, so any
+    // error it produced (AbortError, or a 'Sender URL does not match' rejection that raced the
+    // abort) shouldn't surface as a failure.
+    const cancelled = navigated || (err instanceof DOMException && err.name === 'AbortError');
     if (cancelled) {
       overlay.remove();
     } else if (err instanceof DOMException && err.name === 'SecurityError') {

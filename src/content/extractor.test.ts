@@ -330,12 +330,13 @@ describe('scanVideo skip semantics', () => {
     vi.useFakeTimers();
     try {
       makePlayer();
-      // Sample 0's target (0) never gets 'seeked' → skip; samples 1 and 2 (targets 1, 2) succeed.
+      // Interval 10 / duration 30 → sample times 0,10,20, all clear of END_SAFETY_MARGIN_SEC (upper=28).
+      // Sample 0's target (0) never gets 'seeked' → skip; samples 1 and 2 (targets 10, 20) succeed.
       const v = makeSelectiveSeekingVideo(target => target !== 0);
       v.currentTime = 99; // seed off target 0 so sample 0's "already there" fast path misses too
-      Object.defineProperty(v, 'duration', { configurable: true, value: 3, writable: true });
+      Object.defineProperty(v, 'duration', { configurable: true, value: 30, writable: true });
       const onProgress = vi.fn();
-      const run = scanVideo(v, 1, onProgress, new AbortController().signal);
+      const run = scanVideo(v, 10, onProgress, new AbortController().signal);
       // Let sample 0 exhaust its 4 timeout attempts (+backoff), ~65s, before it gives up and skips.
       await vi.advanceTimersByTimeAsync(70_000);
       const { scores, thumbs } = await run;
@@ -360,11 +361,12 @@ describe('scanVideo skip semantics', () => {
     vi.useFakeTimers();
     try {
       makePlayer();
-      // Samples 0 and 1 (targets 0, 1) succeed; sample 2's target (2) never gets 'seeked' → skip.
-      const v = makeSelectiveSeekingVideo(target => target !== 2);
-      Object.defineProperty(v, 'duration', { configurable: true, value: 3, writable: true });
+      // Interval 10 / duration 30 → sample times 0,10,20, all clear of END_SAFETY_MARGIN_SEC (upper=28).
+      // Samples 0 and 1 (targets 0, 10) succeed; sample 2's target (20) never gets 'seeked' → skip.
+      const v = makeSelectiveSeekingVideo(target => target !== 20);
+      Object.defineProperty(v, 'duration', { configurable: true, value: 30, writable: true });
       const onProgress = vi.fn();
-      const run = scanVideo(v, 1, onProgress, new AbortController().signal);
+      const run = scanVideo(v, 10, onProgress, new AbortController().signal);
       // Let sample 2 exhaust its 4 timeout attempts (+backoff), ~65s, before it gives up and skips.
       await vi.advanceTimersByTimeAsync(70_000);
       const { scores, thumbs } = await run;
