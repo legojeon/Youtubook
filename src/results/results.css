@@ -47,5 +47,7 @@ h1 { font-size:20px; font-weight:700; letter-spacing:-0.5px; margin:0; color:var
 }
 /* 웹스토어(Lite) 에디션: 버튼 2개(책으로 보기·GitHub)만 있으므로 가운데 정렬 */
 #export-panel.webstore .dl-grid { display:flex; flex-wrap:wrap; justify-content:center; }
-#export-panel.webstore .dl { flex:0 1 220px; }
+#export-panel.webstore .dl { flex:0 1 220px; text-align:center; }
 #export-panel.webstore .dl-note { text-align:center; }
+/* GitHub(Full 유도) 버튼: 링크 밑줄 제거 — 중립 보조 버튼 스타일(.dl)만 사용 */
+#install-full { text-decoration:none; }
