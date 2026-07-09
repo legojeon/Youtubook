@@ -2,6 +2,8 @@ import { frameContentScore } from '../core/diff';
 import { MAX_SCAN_SAMPLES } from '../core/limits';
 import type { RepRef } from '../messages';
 
+const NEVER_ABORT = new AbortController().signal;
+
 export function buildSampleTimes(durationSec: number, intervalSec: number): number[] {
   const times: number[] = [];
   for (let i = 0; i < MAX_SCAN_SAMPLES; i++) {
@@ -127,19 +129,37 @@ export async function settleAds(
   return waited;
 }
 
-function seekOnce(video: HTMLVideoElement, target: number): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`seek 시간 초과 (${target.toFixed(1)}s)`));
-    }, SEEK_TIMEOUT_MS);
-    const onSeeked = () => { cleanup(); resolve(); };
+type SeekOutcome = 'seeked' | 'ad' | 'timeout';
+
+/** One seek attempt. Races the seeked event, ad appearance, and a timeout.
+ *  Never rejects except on cancel; a currentTime assignment throw becomes 'timeout'. */
+export function seekOnce(
+  video: HTMLVideoElement,
+  target: number,
+  signal: AbortSignal,
+): Promise<SeekOutcome> {
+  return new Promise<SeekOutcome>((resolve, reject) => {
+    const player = document.getElementById('movie_player');
+    let settled = false;
     const cleanup = () => {
       clearTimeout(timer);
+      clearInterval(poll);
       video.removeEventListener('seeked', onSeeked);
+      signal.removeEventListener('abort', onAbort);
     };
+    const finish = (outcome: SeekOutcome) => { if (!settled) { settled = true; cleanup(); resolve(outcome); } };
+    const onSeeked = () => finish('seeked');
+    const onAbort = () => { if (!settled) { settled = true; cleanup(); reject(aborted()); } };
+    const timer = setTimeout(() => finish('timeout'), SEEK_TIMEOUT_MS);
+    const poll = setInterval(() => { if (isAdShowing(player)) finish('ad'); }, AD_POLL_MS);
     video.addEventListener('seeked', onSeeked);
-    video.currentTime = target;
+    signal.addEventListener('abort', onAbort);
+    if (signal.aborted) { onAbort(); return; }
+    try {
+      video.currentTime = target;
+    } catch {
+      finish('timeout'); // non-finite / bad state — let the recovery loop handle it
+    }
   });
 }
 
@@ -154,22 +174,43 @@ export function clampSeekTarget(t: number, duration: number): number {
   return Math.min(Math.max(t, 0), upper);
 }
 
-async function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
-  const target = clampSeekTarget(t, video.duration);
-  if (!Number.isFinite(target)) return; // bad/NaN target — skip instead of throwing
-  if (Math.abs(video.currentTime - target) < 0.01) return;
-  const started = performance.now();
-  try {
-    await seekOnce(video, target);
-  } catch (err) {
-    console.warn('[youtubook] seek 재시도', target, err);
-    await seekOnce(video, target);
+function backoff(attempt: number, signal: AbortSignal): Promise<void> {
+  return sleep(Math.min(2000, 500 * 2 ** (attempt - 1)), signal); // 500, 1000, 2000, 2000
+}
+
+/**
+ * Robust seek. Waits out ads (auto-skip), tolerates source resets, retries stalls,
+ * and returns false (skip) instead of throwing — except on cancel (AbortError).
+ * Ad waits do NOT consume the retry budget; only genuine timeouts do.
+ */
+export async function seekTo(
+  video: HTMLVideoElement,
+  t: number,
+  signal: AbortSignal,
+  ad?: AdUi,
+): Promise<boolean> {
+  let attempts = 0;
+  let adWaited = 0;
+  while (attempts < MAX_SEEK_ATTEMPTS) {
+    if (signal.aborted) throw aborted();
+    adWaited += await settleAds(video, signal, ad, AD_WAIT_BUDGET_MS - adWaited);
+    if (adWaited >= AD_WAIT_BUDGET_MS && isAdShowing(document.getElementById('movie_player'))) {
+      return false; // ad budget exhausted, still an ad → skip this frame
+    }
+    await waitForVideoReady(video, signal);
+    const target = clampSeekTarget(t, video.duration);
+    if (!Number.isFinite(target)) { attempts++; await backoff(attempts, signal); continue; }
+    // Only trust "already there" before any attempt: a real HTMLMediaElement's currentTime
+    // getter reflects the seek target as soon as it's assigned, well before 'seeked' confirms
+    // a frame is actually ready — so after a timeout, position equality is not proof of success.
+    if (attempts === 0 && Math.abs(video.currentTime - target) < 0.01) return true;
+    const outcome = await seekOnce(video, target, signal);
+    if (outcome === 'seeked') { await nextFrame(); return true; }
+    if (outcome === 'ad') continue;        // loop top re-runs settleAds (no attempt consumed)
+    attempts++;                            // 'timeout'
+    await backoff(attempts, signal);
   }
-  const elapsed = performance.now() - started;
-  if (elapsed > 3000) {
-    console.warn(`[youtubook] 느린 seek: ${target.toFixed(1)}s (${Math.round(elapsed)}ms)`);
-  }
-  await nextFrame();
+  return false;
 }
 
 function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -205,6 +246,23 @@ export async function waitForVideoDimensions(
   }
 }
 
+/** Wait for non-zero dimensions AND a finite duration (both drop during ad/quality resets).
+ *  Best-effort: returns on timeout instead of throwing, so seekTo keeps recovering. */
+export async function waitForVideoReady(
+  video: { videoWidth: number; videoHeight: number; duration: number },
+  signal: AbortSignal,
+  deps: { nextFrame: () => Promise<void>; now: () => number } =
+    { nextFrame, now: () => performance.now() },
+  timeoutMs = DIMENSIONS_TIMEOUT_MS,
+): Promise<void> {
+  const start = deps.now();
+  while (!video.videoWidth || !video.videoHeight || !Number.isFinite(video.duration)) {
+    if (signal.aborted) throw aborted();
+    if (deps.now() - start > timeoutMs) return;
+    await deps.nextFrame();
+  }
+}
+
 export interface ScanResult {
   scores: number[];
   thumbs: string[];
@@ -231,7 +289,7 @@ export async function scanVideo(
   let prev: ImageData | null = null;
   for (let i = 0; i < times.length; i++) {
     if (signal.aborted) throw aborted();
-    await seekTo(video, times[i]);
+    await seekTo(video, times[i], signal);
     thumbCtx.drawImage(video, 0, 0, thumbW, thumbH);
     diffCtx.drawImage(thumbCv, 0, 0, diffW, diffH);
     const cur = diffCtx.getImageData(0, 0, diffW, diffH); // 오염 시 SecurityError 전파
@@ -254,7 +312,7 @@ export async function captureFrames(
   const [, ctx] = makeCanvas(video.videoWidth, video.videoHeight);
   for (let i = 0; i < reps.length; i++) {
     if (signal.aborted) throw aborted();
-    await seekTo(video, reps[i].repSec);
+    await seekTo(video, reps[i].repSec, signal);
     ctx.drawImage(video, 0, 0);
     await onFrame(reps[i].key, ctx.canvas.toDataURL('image/jpeg', 0.9));
     onProgress(i + 1, reps.length);
@@ -272,9 +330,11 @@ export function savePlayerState(v: HTMLVideoElement): PlayerState {
   return { currentTime: v.currentTime, paused: v.paused, muted: v.muted, playbackRate: v.playbackRate };
 }
 
-export async function restorePlayerState(v: HTMLVideoElement, s: PlayerState): Promise<void> {
+export async function restorePlayerState(
+  v: HTMLVideoElement, s: PlayerState, signal: AbortSignal = NEVER_ABORT,
+): Promise<void> {
   v.playbackRate = s.playbackRate;
-  await seekTo(v, s.currentTime).catch(() => {});
+  await seekTo(v, s.currentTime, signal).catch(() => {});
   v.muted = s.muted;
   if (!s.paused) await v.play().catch(() => {});
 }

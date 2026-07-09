@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isAdShowing, clickSkipIfPresent, shouldAbortForSkips, settleAds } from './extractor';
+import { isAdShowing, clickSkipIfPresent, shouldAbortForSkips, settleAds, seekOnce, seekTo } from './extractor';
 
 afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -138,5 +138,114 @@ describe('settleAds', () => {
       await vi.advanceTimersByTimeAsync(500);
       await assertion;
     } finally { vi.useRealTimers(); }
+  });
+});
+
+function makeSeekingVideo(): HTMLVideoElement {
+  const v = makeVideo();
+  const desc = Object.getOwnPropertyDescriptor(v, 'currentTime')!;
+  Object.defineProperty(v, 'currentTime', {
+    configurable: true,
+    get: desc.get,
+    set: (x: number) => { desc.set!.call(v, x); queueMicrotask(() => v.dispatchEvent(new Event('seeked'))); },
+  });
+  return v;
+}
+
+describe('seekOnce', () => {
+  it('resolves "seeked" when the seeked event fires', async () => {
+    makePlayer();
+    const v = makeVideo();
+    const p = seekOnce(v, 50, new AbortController().signal);
+    await Promise.resolve();
+    v.dispatchEvent(new Event('seeked'));
+    await expect(p).resolves.toBe('seeked');
+  });
+
+  it('resolves "ad" when an ad appears during the seek', async () => {
+    vi.useFakeTimers();
+    try {
+      const player = makePlayer();
+      const p = seekOnce(makeVideo(), 50, new AbortController().signal);
+      player.classList.add('ad-showing');
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(p).resolves.toBe('ad');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('resolves "timeout" after SEEK_TIMEOUT_MS with no seeked', async () => {
+    vi.useFakeTimers();
+    try {
+      makePlayer();
+      const p = seekOnce(makeVideo(), 50, new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(p).resolves.toBe('timeout');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('degrades a currentTime assignment throw to "timeout"', async () => {
+    makePlayer();
+    const v = makeVideo();
+    Object.defineProperty(v, 'currentTime', {
+      configurable: true, get: () => 0, set: () => { throw new Error('non-finite'); },
+    });
+    await expect(seekOnce(v, 50, new AbortController().signal)).resolves.toBe('timeout');
+  });
+});
+
+describe('seekTo', () => {
+  it('returns true on a normal seek', async () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    makePlayer();
+    await expect(seekTo(makeSeekingVideo(), 50, new AbortController().signal)).resolves.toBe(true);
+  });
+
+  it('returns true immediately when already at the target', async () => {
+    makePlayer();
+    const v = makeVideo();
+    v.currentTime = 50;
+    await expect(seekTo(v, 50, new AbortController().signal)).resolves.toBe(true);
+  });
+
+  it('waits out an ad then succeeds without consuming retry budget', async () => {
+    // Reach nextFrame's fast path deterministically under fake timers: visible + synchronous rAF.
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1; });
+    vi.useFakeTimers();
+    try {
+      const player = makePlayer();
+      const v = makeVideo(); // plain video: no auto-seeked
+      let seekedAllowed = false;
+      const desc = Object.getOwnPropertyDescriptor(v, 'currentTime')!;
+      Object.defineProperty(v, 'currentTime', {
+        configurable: true, get: desc.get,
+        set: (x: number) => { desc.set!.call(v, x); if (seekedAllowed) queueMicrotask(() => v.dispatchEvent(new Event('seeked'))); },
+      });
+      player.classList.add('ad-showing');
+      const promise = seekTo(v, 50, new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(500);   // seekOnce poll sees the ad → 'ad'
+      seekedAllowed = true;
+      player.classList.remove('ad-showing');    // settleAds next poll clears the ad
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(promise).resolves.toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('returns false (skip) after exhausting retries on persistent timeouts', async () => {
+    vi.useFakeTimers();
+    try {
+      makePlayer();
+      const v = makeVideo();  // seeked never fires
+      const promise = seekTo(v, 50, new AbortController().signal);
+      // 4 attempts × (15s timeout + backoff up to 2s)
+      await vi.advanceTimersByTimeAsync(4 * (15_000 + 2_000));
+      await expect(promise).resolves.toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('throws AbortError when the signal is already aborted', async () => {
+    makePlayer();
+    const ac = new AbortController(); ac.abort();
+    await expect(seekTo(makeVideo(), 50, ac.signal)).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
