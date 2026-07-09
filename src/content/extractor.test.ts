@@ -18,6 +18,8 @@ function makeVideo(): HTMLVideoElement {
   Object.defineProperty(v, 'duration', { configurable: true, value: 100, writable: true });
   Object.defineProperty(v, 'videoWidth', { configurable: true, value: 640, writable: true });
   Object.defineProperty(v, 'videoHeight', { configurable: true, value: 360, writable: true });
+  // Default to HAVE_ENOUGH_DATA (a drawable frame is loaded); a test can drop it to simulate a stall.
+  Object.defineProperty(v, 'readyState', { configurable: true, value: 4, writable: true });
   return v;
 }
 
@@ -184,6 +186,18 @@ describe('seekOnce', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('resolves "stall" when no frame data (readyState < HAVE_CURRENT_DATA) arrives', async () => {
+    vi.useFakeTimers();
+    try {
+      makePlayer();
+      const v = makeVideo();
+      Object.defineProperty(v, 'readyState', { configurable: true, value: 1 }); // HAVE_METADATA — no drawable frame, so 'seeked' can never fire
+      const p = seekOnce(v, 50, new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(5_000); // STALL_TIMEOUT_MS, well before the 15s timeout
+      await expect(p).resolves.toBe('stall');
+    } finally { vi.useRealTimers(); }
+  });
+
   it('degrades a currentTime assignment throw to "timeout"', async () => {
     makePlayer();
     const v = makeVideo();
@@ -199,6 +213,18 @@ describe('seekTo', () => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     makePlayer();
     await expect(seekTo(makeSeekingVideo(), 50, new AbortController().signal)).resolves.toBe(true);
+  });
+
+  it('returns false fast on a data stall — no retries, since retrying will not load the frame', async () => {
+    vi.useFakeTimers();
+    try {
+      makePlayer();
+      const v = makeVideo();
+      Object.defineProperty(v, 'readyState', { configurable: true, value: 1 }); // no drawable frame anywhere (dead CDN / unfetchable quality segments)
+      const promise = seekTo(v, 50, new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(5_000); // one stall window, not 4 × 15s of timeouts
+      await expect(promise).resolves.toBe(false);
+    } finally { vi.useRealTimers(); }
   });
 
   it('returns true immediately when already at the target', async () => {

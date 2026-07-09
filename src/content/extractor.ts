@@ -135,9 +135,16 @@ export async function settleAds(
   return waited;
 }
 
-type SeekOutcome = 'seeked' | 'ad' | 'timeout';
+type SeekOutcome = 'seeked' | 'ad' | 'timeout' | 'stall';
 
-/** One seek attempt. Races the seeked event, ad appearance, and a timeout.
+// If no frame data (readyState < HAVE_CURRENT_DATA) arrives this long after a seek, the segment
+// isn't loading (dead CDN/DNS, or a quality switch whose segments won't fetch). 'seeked' can never
+// fire without data, so skip fast instead of waiting out SEEK_TIMEOUT_MS ×4 — the results page
+// falls back to the scan thumbnail. Keeps extraction moving on a flaky network instead of hanging.
+const STALL_TIMEOUT_MS = 5_000;
+const HAVE_CURRENT_DATA = 2; // HTMLMediaElement.readyState: a frame is decoded and drawable
+
+/** One seek attempt. Races the seeked event, ad appearance, a data stall, and a timeout.
  *  Never rejects except on cancel; a currentTime assignment throw becomes 'timeout'. */
 export function seekOnce(
   video: HTMLVideoElement,
@@ -149,6 +156,7 @@ export function seekOnce(
     let settled = false;
     const cleanup = () => {
       clearTimeout(timer);
+      clearTimeout(stallTimer);
       clearInterval(poll);
       video.removeEventListener('seeked', onSeeked);
       signal.removeEventListener('abort', onAbort);
@@ -157,6 +165,10 @@ export function seekOnce(
     const onSeeked = () => finish('seeked');
     const onAbort = () => { if (!settled) { settled = true; cleanup(); reject(aborted()); } };
     const timer = setTimeout(() => finish('timeout'), SEEK_TIMEOUT_MS);
+    // No drawable frame after STALL_TIMEOUT_MS → data isn't coming; skip fast (don't retry).
+    const stallTimer = setTimeout(() => {
+      if (video.readyState < HAVE_CURRENT_DATA) finish('stall');
+    }, STALL_TIMEOUT_MS);
     const poll = setInterval(() => { if (isAdShowing(player)) finish('ad'); }, AD_POLL_MS);
     video.addEventListener('seeked', onSeeked);
     signal.addEventListener('abort', onAbort);
@@ -221,6 +233,7 @@ export async function seekTo(
     const outcome = await seekOnce(video, target, signal);
     if (outcome === 'seeked') { await nextFrame(); return true; }
     if (outcome === 'ad') continue;        // loop top re-runs settleAds (no attempt consumed)
+    if (outcome === 'stall') return false; // no frame data here — retrying won't load it; skip
     attempts++;                            // 'timeout'
     await backoff(attempts, signal);
   }
