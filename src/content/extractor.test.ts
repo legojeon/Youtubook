@@ -140,24 +140,6 @@ describe('settleAds', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('plays a frozen ad so it can end (a pause set for seeking may have paused it)', async () => {
-    vi.useFakeTimers();
-    try {
-      const p = makePlayer();
-      p.classList.add('ad-showing');
-      const adVid = makeVideo();
-      let adPaused = true;
-      Object.defineProperty(adVid, 'paused', { configurable: true, get: () => adPaused });
-      const playSpy = vi.spyOn(adVid, 'play').mockImplementation(() => { adPaused = false; return Promise.resolve(); });
-      p.appendChild(adVid); // the ad video lives inside #movie_player
-      const promise = settleAds(makeVideo(), new AbortController().signal, undefined, 90_000);
-      await vi.advanceTimersByTimeAsync(500);  // one poll → resumes the paused ad
-      expect(playSpy).toHaveBeenCalled();
-      p.classList.remove('ad-showing');
-      await vi.advanceTimersByTimeAsync(500);
-      await promise;
-    } finally { vi.useRealTimers(); }
-  });
 });
 
 function makeSeekingVideo(): HTMLVideoElement {

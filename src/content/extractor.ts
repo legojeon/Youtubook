@@ -119,13 +119,11 @@ export async function settleAds(
   try {
     while (isAdShowing(player) && waited < budgetMs) {
       if (signal.aborted) throw aborted();
-      // Let the ad play so it can end — a pause we set for seeking may have frozen it,
-      // and a frozen ad never clears (settleAds would then wait out the whole budget).
-      const adVid = document.querySelector<HTMLVideoElement>('#movie_player video');
-      if (adVid) {
-        if (!adVid.muted) adVid.muted = true;
-        if (adVid.paused) void adVid.play().catch(() => {});
-      }
+      // NOTE: do NOT call video.play() here. #movie_player video is the MAIN content (ads on
+      // this player run in a separate element), and capture seeks it near the end — playing it
+      // would reach the end and auto-navigate to the next video, invalidating the session. We
+      // only click the skip button; YouTube autoplays the ad itself, and liveVideo already
+      // avoids pausing during an ad so we never freeze it.
       clickSkipIfPresent(player);
       if (!notified && waited >= AD_NOTIFY_AFTER_MS) { ad?.onStuck?.(); notified = true; }
       await sleep(AD_POLL_MS, signal);
@@ -201,9 +199,17 @@ export async function seekTo(
   let adWaited = 0;
   while (attempts < MAX_SEEK_ATTEMPTS) {
     if (signal.aborted) throw aborted();
+    const player = document.getElementById('movie_player');
     adWaited += await settleAds(video, signal, ad, AD_WAIT_BUDGET_MS - adWaited);
-    if (adWaited >= AD_WAIT_BUDGET_MS && isAdShowing(document.getElementById('movie_player'))) {
+    if (adWaited >= AD_WAIT_BUDGET_MS && isAdShowing(player)) {
       return false; // ad budget exhausted, still an ad → skip this frame
+    }
+    // After an ad, YouTube resumes playback of the main content; a frame seeked near the end
+    // would then play to the end and auto-navigate to the next video (invalidating the session).
+    // Re-pause the live main — but never during an ad, or the ad freezes and never ends.
+    if (!isAdShowing(player)) {
+      const liveMain = player?.querySelector<HTMLVideoElement>('video');
+      if (liveMain && !liveMain.paused) liveMain.pause();
     }
     await waitForVideoReady(video, signal);
     const target = clampSeekTarget(t, video.duration);
