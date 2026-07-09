@@ -15,6 +15,8 @@ export interface BridgeRequest {
 const BRIDGE_COMMANDS = [
   'GET_PLAYER_INFO',
   'SET_MAX_QUALITY',
+  'HOLD_PLAYER',
+  'RELEASE_PLAYER',
   'GET_TIMEDTEXT_URL',
   'WAIT_FOR_TIMEDTEXT_URL',
   'CANCEL_TIMEDTEXT_WAIT',
@@ -48,6 +50,7 @@ export function parseBridgeRequest(value: unknown): BridgeRequest | null {
   if (
     (value.cmd === 'GET_PLAYER_INFO' ||
       value.cmd === 'SET_MAX_QUALITY' ||
+      value.cmd === 'HOLD_PLAYER' ||
       value.cmd === 'CANCEL_TIMEDTEXT_WAIT') &&
     value.payload !== undefined
   ) {

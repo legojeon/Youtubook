@@ -23,6 +23,23 @@ describe('parseBridgeRequest', () => {
     });
   });
 
+  it('accepts a payload-free player hold', () => {
+    expect(parseBridgeRequest({
+      source: 'youtubook-cs',
+      cmd: 'HOLD_PLAYER',
+      reqId: 'yb-hold-1',
+    })).toMatchObject({ cmd: 'HOLD_PLAYER', reqId: 'yb-hold-1' });
+  });
+
+  it('accepts a player release carrying the prior autoplay state to restore', () => {
+    expect(parseBridgeRequest({
+      source: 'youtubook-cs',
+      cmd: 'RELEASE_PLAYER',
+      reqId: 'yb-release-1',
+      payload: { prevAutonav: 1 },
+    })).toMatchObject({ cmd: 'RELEASE_PLAYER', payload: { prevAutonav: 1 } });
+  });
+
   it.each([
     { source: 'youtubook-cs', cmd: 'UNKNOWN_COMMAND', reqId: 'yb-1' },
     {
@@ -31,6 +48,7 @@ describe('parseBridgeRequest', () => {
       reqId: 'yb-wait-1',
       payload: { reqId: 'other' },
     },
+    { source: 'youtubook-cs', cmd: 'HOLD_PLAYER', reqId: 'yb-hold-1', payload: {} },
   ])('rejects an unknown or malformed command (%j)', candidate => {
     expect(parseBridgeRequest(candidate)).toBeNull();
   });

@@ -1,7 +1,7 @@
 import { DEFAULT_DETECT } from '../core/detect';
 import { repKey, type SessionMeta } from '../core/types';
 import type { Msg, MsgResponse } from '../messages';
-import { getPlayerInfo } from './bridge-client';
+import { getPlayerInfo, holdPlayer, releasePlayer } from './bridge-client';
 import {
   captureFrames, restorePlayerState, savePlayerState, waitForNoAd, type AdUi,
 } from './extractor';
@@ -115,6 +115,10 @@ async function runExtraction(): Promise<void> {
     const state = savePlayerState(video);
     video.muted = true;
     video.pause();
+    // Best-effort via the player API: pause more firmly (survives YouTube resuming after an ad)
+    // and disable autoplay so reaching the end can't advance to the next video mid-run. Returns
+    // the prior autoplay state so we can restore it in the finally. Failure is non-fatal.
+    const hold = await holdPlayer().catch(() => null);
 
     let result;
     try {
@@ -175,6 +179,8 @@ async function runExtraction(): Promise<void> {
     } finally {
       // Restore the CURRENT element — a mid-roll ad may have swapped it mid-run.
       await restorePlayerState(findVideo() ?? video, state, ac.signal);
+      // Restore the user's autoplay setting to exactly what it was before we held the player.
+      if (hold) await releasePlayer(hold.prevAutonav).catch(() => {});
     }
     if (!result?.ok) throw new Error(result?.reason ?? t('banner_saveFail'));
     overlay.remove();

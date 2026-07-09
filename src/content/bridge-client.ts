@@ -76,6 +76,16 @@ function bridgeCall<T>(
 
 export const getPlayerInfo = () => bridgeCall<PlayerInfo>('GET_PLAYER_INFO');
 export const setMaxQuality = () => bridgeCall<{ ok: boolean }>('SET_MAX_QUALITY');
+
+export interface HoldResult {
+  ok: boolean;
+  prevAutonav: number | null;
+}
+// Pause via the player API and disable autoplay-to-next so extraction can't be interrupted
+// by the tab navigating to another video. Returns the prior autoplay state to restore later.
+export const holdPlayer = () => bridgeCall<HoldResult>('HOLD_PLAYER');
+export const releasePlayer = (prevAutonav: number | null) =>
+  bridgeCall<{ ok: boolean }>('RELEASE_PLAYER', { prevAutonav });
 export const getTimedtextUrl = (query: TimedtextQuery, signal?: AbortSignal) =>
   bridgeCall<ObservedTimedtextUrl | null>('GET_TIMEDTEXT_URL', query, 2_000, signal);
 export const waitForTimedtextUrl = (query: TimedtextQuery, signal?: AbortSignal) =>
