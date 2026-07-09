@@ -60,8 +60,17 @@ The script follows your selected scenes: each chosen scene carries all narration
 
 **Build it yourself**
 
-1. `npm install && npm run build` → produces `dist/`.
-2. Chrome → `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/`.
+The **Full** and **Lite** editions build from the same source:
+
+```bash
+npm install
+npm run build            # Youtubook Full → dist/          (every feature, incl. downloads)
+npm run build:webstore   # Youtubook Lite → dist-webstore/  (view-as-book only, no downloads)
+```
+
+Then Chrome → `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/` (or `dist-webstore/`).
+
+The **Full** edition (this repo / Releases) has every feature. **Lite** is a download-free build intended for the Chrome Web Store — it keeps "View as book" and links back here for the full version.
 
 Requires Chrome 111+.
 
@@ -75,12 +84,14 @@ Requires Chrome 111+.
 
 ```bash
 npm install
-npm run build   # type-check + build to dist/
-npm test        # unit tests (Vitest)
-npm run zip     # build + zip for release / the Chrome Web Store
+npm run build            # type-check + build Full → dist/
+npm run build:webstore   # build the download-free Lite (Web Store) → dist-webstore/
+npm test                 # unit tests (Vitest)
+npm run zip              # build + zip the Full edition for a release
+npm run zip:webstore     # build + zip the Lite edition for the Chrome Web Store
 ```
 
-Stack: TypeScript · Vite + @crxjs/vite-plugin · jsPDF · PptxGenJS
+The two editions share one codebase; a build-time `VITE_EDITION` flag drops all download/export code from the Lite build. Stack: TypeScript · Vite + @crxjs/vite-plugin · jsPDF · PptxGenJS
 
 ## Privacy
 
@@ -91,6 +102,20 @@ Youtubook processes everything locally in your browser — video frames, caption
 - Videos without captions produce scene images only (no script / TXT).
 - Live streams, premieres, and DRM-protected videos aren't supported.
 - YouTube page changes can affect some features (e.g. caption extraction).
+
+## Roadmap
+
+Youtubook is still growing. On the wishlist — **contributions welcome** (see below):
+
+- [ ] **More export targets** — send a book straight to **Notion**, **Obsidian**, or Markdown, beyond today's HTML / PDF / PPTX / TXT.
+- [ ] **Speech-to-text fallback** — optional on-device transcription (e.g. Whisper) for videos that have no captions.
+- [ ] **Wider coverage** — YouTube Shorts support and more resilient caption handling.
+
+Got another idea? [Open an issue](../../issues).
+
+## Contributing
+
+Contributions of every kind are welcome — bug fixes, features, docs, translations. The **Roadmap** items above are especially good places to jump in, and a great excuse to say hi. New file-based export formats start from [`src/results/exporters.ts`](src/results/exporters.ts), built on the shared book data in [`src/results/book-data.ts`](src/results/book-data.ts). [Open an issue](../../issues) to discuss, or send a pull request.
 
 ## License
 

@@ -60,8 +60,17 @@ Youtubook은 영상의 장면을 자동으로 나누고 각 장면을 자막 대
 
 **직접 빌드**
 
-1. `npm install && npm run build` → `dist/`가 생성됩니다.
-2. Chrome → `chrome://extensions` → **개발자 모드**를 켠 뒤 → **압축해제된 확장 프로그램 로드** → `dist/`를 선택합니다.
+**Full**·**Lite** 에디션은 같은 소스에서 빌드됩니다:
+
+```bash
+npm install
+npm run build            # Youtubook Full → dist/          (모든 기능, 다운로드 포함)
+npm run build:webstore   # Youtubook Lite → dist-webstore/  (책으로 보기만, 다운로드 없음)
+```
+
+이후 Chrome → `chrome://extensions` → **개발자 모드**를 켠 뒤 → **압축해제된 확장 프로그램 로드** → `dist/`(또는 `dist-webstore/`)를 선택합니다.
+
+**Full**(이 저장소·Releases)은 모든 기능을 담고, **Lite**는 크롬 웹스토어를 위한 다운로드 없는 빌드입니다 — "책으로 보기"만 남기고 풀 버전은 여기로 연결합니다.
 
 요구사항: Chrome 111+
 
@@ -75,12 +84,14 @@ Youtubook은 영상의 장면을 자동으로 나누고 각 장면을 자막 대
 
 ```bash
 npm install
-npm run build   # 타입체크 + dist/ 빌드
-npm test        # 단위 테스트 (Vitest)
-npm run zip     # 빌드 + 배포용 zip(릴리스·웹스토어)
+npm run build            # 타입체크 + Full 빌드 → dist/
+npm run build:webstore   # 다운로드 없는 Lite(웹스토어) 빌드 → dist-webstore/
+npm test                 # 단위 테스트 (Vitest)
+npm run zip              # Full 에디션 빌드 + 배포용 zip
+npm run zip:webstore     # Lite 에디션 빌드 + 웹스토어용 zip
 ```
 
-스택: TypeScript · Vite + @crxjs/vite-plugin · jsPDF · PptxGenJS
+두 에디션은 코드베이스 하나를 공유하며, 빌드 시점 `VITE_EDITION` 플래그가 Lite 빌드에서 모든 다운로드/내보내기 코드를 제거합니다. 스택: TypeScript · Vite + @crxjs/vite-plugin · jsPDF · PptxGenJS
 
 ## 개인정보
 
@@ -91,6 +102,20 @@ Youtubook은 모든 처리를 브라우저 안에서 로컬로 수행합니다 �
 - 자막이 없는 영상은 장면 이미지만 만들어집니다(대본·TXT 없음).
 - 라이브 방송, 프리미어, DRM 보호 영상은 지원하지 않습니다.
 - 유튜브 페이지 구조가 바뀌면 일부 기능(예: 자막 추출)이 영향을 받을 수 있습니다.
+
+## 차후 계획
+
+Youtubook은 계속 발전 중입니다. 계획 중인 것들 — **기여를 환영합니다**(아래 참고):
+
+- [ ] **더 많은 내보내기 대상** — 지금의 HTML·PDF·PPTX·TXT를 넘어 **Notion**·**Obsidian**·마크다운으로 바로 보내기.
+- [ ] **음성 인식 폴백** — 자막이 없는 영상을 위한 선택적 온디바이스 음성→텍스트(예: Whisper).
+- [ ] **더 넓은 지원** — YouTube Shorts 지원과 더 견고한 자막 처리.
+
+다른 아이디어가 있나요? [이슈를 열어 주세요](../../issues).
+
+## 기여
+
+버그 수정, 기능, 문서, 번역 등 모든 형태의 기여를 환영합니다. 위 **차후 계획** 항목이 특히 함께하기 좋은 부분입니다. 새 파일 기반 내보내기 형식은 [`src/results/exporters.ts`](src/results/exporters.ts)에서 시작하며, 공유 책 데이터 [`src/results/book-data.ts`](src/results/book-data.ts) 위에 얹힙니다. [이슈를 열어](../../issues) 논의하거나 풀 리퀘스트를 보내 주세요.
 
 ## 라이선스
 
