@@ -106,7 +106,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * settleAds is called once per ad, so multiple ads each get their own judgement.
  */
 export async function settleAds(
-  video: HTMLVideoElement,
+  _video: HTMLVideoElement,
   signal: AbortSignal,
   ad: AdUi | undefined,
   budgetMs: number,
@@ -119,6 +119,13 @@ export async function settleAds(
   try {
     while (isAdShowing(player) && waited < budgetMs) {
       if (signal.aborted) throw aborted();
+      // Let the ad play so it can end — a pause we set for seeking may have frozen it,
+      // and a frozen ad never clears (settleAds would then wait out the whole budget).
+      const adVid = document.querySelector<HTMLVideoElement>('#movie_player video');
+      if (adVid) {
+        if (!adVid.muted) adVid.muted = true;
+        if (adVid.paused) void adVid.play().catch(() => {});
+      }
       clickSkipIfPresent(player);
       if (!notified && waited >= AD_NOTIFY_AFTER_MS) { ad?.onStuck?.(); notified = true; }
       await sleep(AD_POLL_MS, signal);
@@ -280,8 +287,11 @@ function liveVideo(
   fallback: HTMLVideoElement,
 ): HTMLVideoElement {
   const v = getVideo?.() ?? fallback;
-  if (!v.paused) v.pause();
   if (!v.muted) v.muted = true;
+  // Pause the MAIN content for stable seeking — but NEVER while an ad is showing, or the ad
+  // gets frozen and never ends, so settleAds just waits out the whole budget (the overlay
+  // sits on "waiting for the ad" forever).
+  if (!isAdShowing(document.getElementById('movie_player')) && !v.paused) v.pause();
   return v;
 }
 
