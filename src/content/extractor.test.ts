@@ -324,7 +324,10 @@ describe('scanVideo skip semantics', () => {
 
   it('reuses the previous thumbnail as the placeholder when a skip follows a success', async () => {
     stubCanvas2d();
-    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,x');
+    // Distinct-per-call (not a constant) so the reuse assertion below can't pass by coincidence —
+    // it only holds if the skip branch truly reuses the prior array entry rather than redrawing.
+    let n = 0;
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => `data:jpg;${n++}`);
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1; });
     vi.useFakeTimers();

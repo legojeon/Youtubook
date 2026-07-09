@@ -43,6 +43,7 @@ const handle = createSessionMessageHandler({
 chrome.runtime.onMessage.addListener(
   (msg: unknown, sender, sendResponse: (response: MsgResponse) => void) => {
     if (!isHandledBackgroundMessage(msg)) return false;
+    if (msg.type === 'FRAME_UPLOAD') void chrome.notifications.clear(AD_NOTICE_ID); // a captured frame means any ad has resolved
     void handle(msg, sender).then(sendResponse);
     return true;
   },
