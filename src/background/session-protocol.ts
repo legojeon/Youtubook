@@ -1,6 +1,6 @@
 import { repKey } from '../core/types';
 import { applyThumbChunk, validateThumbChunk } from '../core/thumb-chunks';
-import type { Msg, MsgResponse } from '../messages';
+import { SENDER_VIDEO_MISMATCH_REASON, type Msg, type MsgResponse } from '../messages';
 import {
   deletePendingSession,
   finalizePendingSession,
@@ -72,7 +72,7 @@ export function validateTopLevelYoutubeSender(
   }
   if (expectedVideoId !== undefined
     && new URL(watchUrl).searchParams.get('v') !== expectedVideoId) {
-    throw new Error('Sender URL does not match the session video.');
+    throw new Error(SENDER_VIDEO_MISMATCH_REASON);
   }
   return tabId as number;
 }

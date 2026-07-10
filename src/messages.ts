@@ -33,6 +33,15 @@ export interface MsgResponse {
   reason?: string; // 'tab-closed' | 'wrong-video' | 기타 오류 설명
 }
 
+/**
+ * The SW rejects a session message whose sender ?v= no longer matches the bound video. YouTube can
+ * briefly pushState the tab URL to another video near the end (autoplay/up-next prep) or around
+ * ads and then revert it, so a frame upload can race that blip and be rejected even though the tab
+ * never actually left our video. The content script retries this specific rejection while it can
+ * confirm the video hasn't truly changed. Shared so the SW throw and the retry check stay in sync.
+ */
+export const SENDER_VIDEO_MISMATCH_REASON = 'Sender URL does not match the session video.';
+
 /** GET_EXTRACTION_STATUS 응답 (MsgResponse와 별개). stage는 i18n 키. */
 export interface ExtractionStatus {
   running: boolean;

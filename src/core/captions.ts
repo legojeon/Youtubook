@@ -102,6 +102,21 @@ export function parseJson3(raw: unknown, durationSec = MAX_VIDEO_DURATION_SEC): 
   return cues;
 }
 
+/**
+ * Re-clamp cues to the duration that will be reported in the session meta. Cues are first clamped
+ * when parsed, but that uses video.duration read *before* the long scan; by the time the session is
+ * sent, video.duration can be slightly smaller (metadata refines, or a mid-roll ad briefly swaps the
+ * media element). A cue overhanging that final duration would otherwise fail the SW's strict
+ * [0, durationSec] check and abort the whole session, so realign here. Cues starting past the end
+ * are dropped; cues merely overhanging are trimmed.
+ */
+export function clampCuesToDuration(cues: Cue[], durationSec: number): Cue[] {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return [];
+  return cues
+    .filter(cue => cue.startSec <= durationSec)
+    .map(cue => (cue.endSec > durationSec ? { ...cue, endSec: durationSec } : cue));
+}
+
 export function pickCaptionTrack(
   tracks: CaptionTrackInfo[],
   preferredLangs: string[],

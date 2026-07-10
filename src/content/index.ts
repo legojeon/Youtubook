@@ -1,6 +1,7 @@
+import { clampCuesToDuration } from '../core/captions';
 import { DEFAULT_DETECT } from '../core/detect';
 import { repKey, type SessionMeta } from '../core/types';
-import type { Msg, MsgResponse } from '../messages';
+import { SENDER_VIDEO_MISMATCH_REASON, type Msg, type MsgResponse } from '../messages';
 import { getPlayerInfo, holdPlayer, releasePlayer } from './bridge-client';
 import {
   captureFrames, restorePlayerState, savePlayerState, waitForNoAd, type AdUi,
@@ -18,6 +19,12 @@ import { t } from '../ui/i18n';
 
 let running = false;
 let currentAbort: (() => void) | null = null;
+
+// A transient sender-?v= rejection (see SENDER_VIDEO_MISMATCH_REASON) reverts within a moment, so
+// retry a rejected session message a few times before giving up — one blipped frame upload must
+// not kill the whole extraction. 8 × 250ms ≈ 2s of grace per message.
+const SENDER_RETRY_ATTEMPTS = 8;
+const SENDER_RETRY_DELAY_MS = 250;
 
 chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r: MsgResponse) => void) => {
   if (typeof msg !== 'object' || msg === null || typeof (msg as { type?: unknown }).type !== 'string') {
@@ -80,6 +87,18 @@ async function runExtraction(): Promise<void> {
   // 'Sender URL does not match' rejection never surfaces as an error.
   const startVideoId = new URLSearchParams(location.search).get('v');
   const videoChanged = () => new URLSearchParams(location.search).get('v') !== startVideoId;
+  // Retry the SW's transient sender-?v= rejection: YouTube briefly pushStates the tab URL to
+  // another video near the end / around ads and reverts it, so a session message can race that
+  // blip even though we never left our video. Give up immediately on a real navigation
+  // (videoChanged/abort) so a genuine nav still falls through to the quiet-cancel guard.
+  const sendResilient = async (m: Msg): Promise<MsgResponse> => {
+    for (let attempt = 0; ; attempt++) {
+      const res = await send(m);
+      if (res.ok || res.reason !== SENDER_VIDEO_MISMATCH_REASON) return res;
+      if (attempt >= SENDER_RETRY_ATTEMPTS || videoChanged() || ac.signal.aborted) return res;
+      await new Promise(r => setTimeout(r, SENDER_RETRY_DELAY_MS));
+    }
+  };
   const overlay = createOverlay(() => ac.abort());
   // fire-and-forget: progress sends have no responder, so swallow the promise.
   const reporter = createProgressReporter(m => { void send(m).catch(() => {}); });
@@ -153,11 +172,14 @@ async function runExtraction(): Promise<void> {
         truncated: det.truncated,
         createdAt: Date.now(),
       };
-      await sendSessionStart(send, {
+      await sendSessionStart(sendResilient, {
         type: 'SESSION_BEGIN',
         meta,
         scores: scan.scores,
-        cues: captions.cues,
+        // Realign cues to the exact duration in meta — video.duration can shrink between caption
+        // parse and here (ad element swap / metadata refine), and an overhanging cue would fail
+        // the SW's strict [0, durationSec] validation and abort the whole session.
+        cues: clampCuesToDuration(captions.cues, meta.durationSec),
         ranges: det.ranges,
       }, scan.thumbs);
 
@@ -170,12 +192,12 @@ async function runExtraction(): Promise<void> {
         video,
         det.ranges.map(r => ({ key: repKey(r.repSec), repSec: r.repSec })),
         (d, total) => onProgress(d, total),
-        async (key, dataUrl) => { await sendSessionImage(send, meta.id, key, dataUrl); },
+        async (key, dataUrl) => { await sendSessionImage(sendResilient, meta.id, key, dataUrl); },
         ac.signal,
         ad,
         findVideo,
       );
-      result = await send({ type: 'SESSION_COMMIT', sessionId: meta.id });
+      result = await sendResilient({ type: 'SESSION_COMMIT', sessionId: meta.id });
     } finally {
       // Restore the CURRENT element — a mid-roll ad may have swapped it mid-run.
       await restorePlayerState(findVideo() ?? video, state, ac.signal);
