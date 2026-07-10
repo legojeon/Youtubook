@@ -1,7 +1,7 @@
 {
   "appDesc": { "message": "유튜브 영상을 그림책(PDF/PPTX)과 대본(TXT)으로 변환합니다." },
   "appDescLite": { "message": "유튜브 영상을 삽화가 있는 한 편의 글로 읽어요 — 핵심 장면과 자막 대본을 한 페이지에." },
-  "popup_generate": { "message": "그림책 생성" },
+  "popup_generate": { "message": "장면 추출" },
   "popup_notYoutube": { "message": "유튜브 영상 페이지에서 실행해주세요." },
   "popup_starting": { "message": "추출을 시작합니다…" },
   "popup_extracting": { "message": "추출 중 — 진행 상황은 영상 페이지 상단에 표시됩니다. 완료되면 결과 탭이 열립니다." },
@@ -47,7 +47,7 @@
   "overlay_preparing": { "message": "준비 중…" },
   "overlay_cancel": { "message": "취소" },
   "overlay_keepTab": { "message": "이제 다른 탭이나 작업을 하셔도 됩니다 — 완료되면 알려드릴게요. (이 탭을 닫거나 다른 영상으로 이동하면 중단됩니다.)" },
-  "notify_doneTitle": { "message": "그림책 준비 완료" },
+  "notify_doneTitle": { "message": "장면 준비 완료" },
   "notify_doneBody": { "message": "장면 캡처가 끝났어요. 클릭하면 결과를 엽니다." },
   "popup_progress": { "message": "$stage$ · $pct$%", "placeholders": { "stage": { "content": "$1" }, "pct": { "content": "$2" } } },
   "popup_cancel": { "message": "추출 취소" },

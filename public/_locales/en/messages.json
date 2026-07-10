@@ -1,7 +1,7 @@
 {
   "appDesc": { "message": "Turn YouTube videos into picture books (PDF/PPTX) and scripts (TXT)." },
   "appDescLite": { "message": "Read a YouTube video as an illustrated article — key scenes and their narration on one page." },
-  "popup_generate": { "message": "Create picture book" },
+  "popup_generate": { "message": "Extract scenes" },
   "popup_notYoutube": { "message": "Open a YouTube video page to run this." },
   "popup_starting": { "message": "Starting extraction…" },
   "popup_extracting": { "message": "Extracting — progress shows at the top of the video page. The results tab opens when it's done." },
@@ -47,7 +47,7 @@
   "overlay_preparing": { "message": "Preparing…" },
   "overlay_cancel": { "message": "Cancel" },
   "overlay_keepTab": { "message": "You can switch tabs or do other work — we'll let you know when it's done. (Closing this tab or opening another video stops it.)" },
-  "notify_doneTitle": { "message": "Picture book ready" },
+  "notify_doneTitle": { "message": "Scenes are ready" },
   "notify_doneBody": { "message": "Scenes captured. Click to open the results." },
   "popup_progress": { "message": "$stage$ · $pct$%", "placeholders": { "stage": { "content": "$1" }, "pct": { "content": "$2" } } },
   "popup_cancel": { "message": "Cancel extraction" },
