@@ -1,5 +1,6 @@
 {
   "appDesc": { "message": "Turn YouTube videos into picture books (PDF/PPTX) and scripts (TXT)." },
+  "appDescLite": { "message": "Read a YouTube video as an illustrated article — key scenes and their narration on one page." },
   "popup_generate": { "message": "Create picture book" },
   "popup_notYoutube": { "message": "Open a YouTube video page to run this." },
   "popup_starting": { "message": "Starting extraction…" },

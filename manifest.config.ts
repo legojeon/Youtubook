@@ -4,10 +4,12 @@ const isWebstore = process.env.VITE_EDITION === 'webstore';
 
 export default defineManifest({
   manifest_version: 3,
-  name: isWebstore ? 'Youtubook Lite' : 'Youtubook Full',
+  name: isWebstore ? 'Youtubook' : 'Youtubook Full',
   version: '0.1.3',
   default_locale: 'en',
-  description: '__MSG_appDesc__',
+  // Lite (web store) has no file export, so it uses a reading-focused description with no
+  // download/convert framing (accuracy + store policy); Full keeps the export-oriented one.
+  description: isWebstore ? '__MSG_appDescLite__' : '__MSG_appDesc__',
   icons: {
     16: 'icons/icon16.png',
     32: 'icons/icon32.png',
