@@ -1,6 +1,7 @@
 {
-  "appDesc": { "message": "유튜브 영상을 그림책(PDF/PPTX)과 대본(TXT)으로 변환합니다." },
-  "appDescLite": { "message": "유튜브 영상을 삽화가 있는 한 편의 글로 읽어요 — 핵심 장면과 자막 대본을 한 페이지에." },
+  "appDesc": { "message": "유튜브 영상의 핵심 장면과 자막을 한 페이지로 읽고, PDF·PPTX·HTML로 내보내요." },
+  "appNameLite": { "message": "Youtubook: 직접 읽는 유튜브" },
+  "appDescLite": { "message": "유튜브 영상을 보지 않고 읽어요 — 핵심 장면과 자막을 한 페이지에." },
   "popup_generate": { "message": "장면 추출" },
   "popup_notYoutube": { "message": "유튜브 영상 페이지에서 실행해주세요." },
   "popup_starting": { "message": "추출을 시작합니다…" },

@@ -1,6 +1,7 @@
 {
-  "appDesc": { "message": "Turn YouTube videos into picture books (PDF/PPTX) and scripts (TXT)." },
-  "appDescLite": { "message": "Read a YouTube video as an illustrated article — key scenes and their narration on one page." },
+  "appDesc": { "message": "Read a YouTube video's key scenes and narration on one page — and export to PDF, PPTX, or HTML." },
+  "appNameLite": { "message": "Youtubook: Read YouTube videos" },
+  "appDescLite": { "message": "Read a YouTube video instead of watching it — its key scenes and narration, on one page." },
   "popup_generate": { "message": "Extract scenes" },
   "popup_notYoutube": { "message": "Open a YouTube video page to run this." },
   "popup_starting": { "message": "Starting extraction…" },
