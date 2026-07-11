@@ -7,6 +7,7 @@
 **유튜브 영상, 보지 말고 읽으세요.**<br>
 Youtubook은 영상을 장면 스크린샷과 자막 대본이 어우러진 한 페이지로 바꿔 줍니다 — 전부 브라우저 안에서.
 
+<a href="https://chromewebstore.google.com/detail/youtubook-read-youtube-vi/poogpfcjddncpnmeflfmoacmegfcjcpp?hl=ko"><img alt="크롬 웹스토어에서 설치" src="https://img.shields.io/badge/Chrome%20Web%20Store-Install-4285F4?logo=googlechrome&logoColor=white"></a>
 <img alt="Manifest V3" src="https://img.shields.io/badge/Manifest-V3-4285F4">
 <img alt="Chrome 111+" src="https://img.shields.io/badge/Chrome-111%2B-4285F4">
 <img alt="100% in-browser" src="https://img.shields.io/badge/100%25-in--browser-2ea44f">
@@ -52,6 +53,10 @@ Youtubook은 영상의 장면을 자동으로 나누고 각 장면을 자막 대
 대본은 선택한 장면들이 영상 전체 타임라인을 나눠 갖습니다 — 각 장면이 "다음 선택 장면 직전까지"의 내레이션을 모두 담으므로, 장면을 일부만 골라도 대본이 빠지지 않습니다.
 
 ## 설치
+
+**크롬 웹스토어에서 설치**
+
+**[Youtubook](https://chromewebstore.google.com/detail/youtubook-read-youtube-vi/poogpfcjddncpnmeflfmoacmegfcjcpp?hl=ko)**을 클릭 한 번으로 설치하세요 — 자동 업데이트되고 개발자 모드도 필요 없습니다. 이것은 **Lite** 에디션입니다(책으로 보기만, 파일 다운로드 없음). HTML·PDF·PPTX·TXT로 내보내려면 아래 릴리스에서 **Full** 에디션을 설치하세요.
 
 **릴리스에서 설치**
 

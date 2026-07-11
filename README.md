@@ -7,6 +7,7 @@
 **Read a YouTube video instead of watching it.**<br>
 Youtubook turns any video into an illustrated page — each scene's screenshot paired with its transcript — right in your browser.
 
+<a href="https://chromewebstore.google.com/detail/youtubook-read-youtube-vi/poogpfcjddncpnmeflfmoacmegfcjcpp?hl=en"><img alt="Available in the Chrome Web Store" src="https://img.shields.io/badge/Chrome%20Web%20Store-Install-4285F4?logo=googlechrome&logoColor=white"></a>
 <img alt="Manifest V3" src="https://img.shields.io/badge/Manifest-V3-4285F4">
 <img alt="Chrome 111+" src="https://img.shields.io/badge/Chrome-111%2B-4285F4">
 <img alt="100% in-browser" src="https://img.shields.io/badge/100%25-in--browser-2ea44f">
@@ -52,6 +53,10 @@ Everything runs **100% in your browser** — no AI, no server, no video download
 The script follows your selected scenes: each chosen scene carries all narration up to the next selected scene, so picking only some scenes never drops any of the story.
 
 ## Install
+
+**From the Chrome Web Store**
+
+Install **[Youtubook](https://chromewebstore.google.com/detail/youtubook-read-youtube-vi/poogpfcjddncpnmeflfmoacmegfcjcpp?hl=en)** in one click — auto-updating, no developer mode. This is the **Lite** edition (View as book only, no file downloads). For HTML / PDF / PPTX / TXT export, use the **Full** edition from a release below.
 
 **From a release**
 
