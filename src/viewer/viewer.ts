@@ -8,7 +8,11 @@ import { applyI18n, t } from '../ui/i18n';
 import { renderViewer } from './viewer-view';
 
 function bookLabels(): BookLabels {
-  return { playCaption: t('book_playCaption'), openOriginal: t('book_openOriginal') };
+  return {
+    playCaption: t('book_playCaption'),
+    openOriginal: t('book_openOriginal'),
+    zoomCaption: t('book_zoomCaption'),
+  };
 }
 
 async function bookViewKeys(sessionId: string, allKeys: string[]): Promise<string[]> {

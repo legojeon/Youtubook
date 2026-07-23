@@ -87,6 +87,7 @@ export function mountDownloadPanel(deps: DownloadPanelDeps): void {
   const htmlLabels = (): BookLabels => ({
     playCaption: t('book_playCaption'),
     openOriginal: t('book_openOriginal'),
+    zoomCaption: t('book_zoomCaption'),
   });
   const uiLang = (): string => chrome.i18n?.getUILanguage?.() || 'en';
   $('#dl-html').addEventListener('click', e =>

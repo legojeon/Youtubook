@@ -32,6 +32,7 @@
   "viewer_empty": { "message": "No scenes selected." },
   "book_playCaption": { "message": "Scene — watch from this moment" },
   "book_openOriginal": { "message": "Open original video ↗" },
+  "book_zoomCaption": { "message": "Enlarge photo" },
   "downscale_label": { "message": "Shrink photos (lower resolution)" },
   "downscale_title": { "message": "Shrinks PDF/PPTX/web-page photos to 1280px to reduce file size. Turn off when viewing large, printing, or presenting." },
   "sceneCount": { "message": "$count$ scenes", "placeholders": { "count": { "content": "$1" } } },

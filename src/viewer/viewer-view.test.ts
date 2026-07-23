@@ -4,7 +4,7 @@ import type { BookData, BookLabels } from '../results/html-book';
 import { renderViewer } from './viewer-view';
 
 const IMG = 'data:image/jpeg;base64,AAAA';
-const LABELS: BookLabels = { playCaption: '장면', openOriginal: '원본 ↗' };
+const LABELS: BookLabels = { playCaption: '장면', openOriginal: '원본 ↗', zoomCaption: '확대' };
 
 function book(): BookData {
   return {

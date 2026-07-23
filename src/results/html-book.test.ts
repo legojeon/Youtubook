@@ -17,7 +17,7 @@ function book(overrides: Partial<BookData> = {}): BookData {
   };
 }
 
-const LABELS: BookLabels = { playCaption: '장면 — 이 순간부터 영상 보기', openOriginal: '원본 영상 열기 ↗' };
+const LABELS: BookLabels = { playCaption: '장면 — 이 순간부터 영상 보기', openOriginal: '원본 영상 열기 ↗', zoomCaption: '사진 확대' };
 
 const html = (data: BookData): Promise<string> => buildHtmlBook(data, LABELS, 'ko').text();
 
@@ -53,6 +53,16 @@ describe('buildHtmlBook', () => {
   it('반응형 좌우 배치 브레이크포인트를 포함한다', async () => {
     const out = await html(book());
     expect(out).toContain('@media (min-width: 700px)');
+  });
+
+  it('장면마다 고유 id의 확대 토글과 확대 버튼을 만든다', async () => {
+    const out = await html(book());
+    expect(out.match(/class="zoom-toggle"/g)).toHaveLength(2);
+    expect(out).toContain('id="zoom-0"');
+    expect(out).toContain('id="zoom-1"');
+    expect(out).toContain('for="zoom-0"');
+    expect(out).toContain('class="lightbox"');
+    expect(out).toContain('aria-label="사진 확대"');
   });
 
   it('제목과 자막을 이스케이프해 주입을 막는다', async () => {
@@ -108,9 +118,11 @@ describe('renderBookBodyHtml', () => {
   });
 
   it('라벨도 이스케이프한다', () => {
-    const out = renderBookBodyHtml(book(), { playCaption: '<x>', openOriginal: '<y>' });
+    const out = renderBookBodyHtml(book(), { playCaption: '<x>', openOriginal: '<y>', zoomCaption: '<z>' });
     expect(out).toContain('&lt;x&gt;');
     expect(out).toContain('&lt;y&gt;');
+    expect(out).toContain('&lt;z&gt;');
     expect(out).not.toContain('<x>');
+    expect(out).not.toContain('<z>');
   });
 });

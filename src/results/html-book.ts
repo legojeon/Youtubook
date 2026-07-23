@@ -24,6 +24,7 @@ export function escapeHtml(s: string): string {
 export interface BookLabels {
   playCaption: string;
   openOriginal: string;
+  zoomCaption: string;
 }
 
 function deepLinkUrl(videoId: string, sec: number): string {
@@ -31,13 +32,25 @@ function deepLinkUrl(videoId: string, sec: number): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${t}s`;
 }
 
-function sceneBlockHtml(block: SceneBlock, videoId: string, labels: BookLabels): string {
+function sceneBlockHtml(
+  block: SceneBlock,
+  videoId: string,
+  labels: BookLabels,
+  index: number,
+): string {
   const href = escapeHtml(deepLinkUrl(videoId, block.deepLinkSec));
+  const zoom = escapeHtml(labels.zoomCaption);
+  const id = `zoom-${index}`;
   return `    <article class="scene">
-      <a class="photo" href="${href}" target="_blank" rel="noopener">
-        <img src="${block.image}" alt="${escapeHtml(labels.playCaption)}" loading="lazy">
-        <span class="play">▶</span>
-      </a>
+      <div class="photo">
+        <input type="checkbox" id="${id}" class="zoom-toggle" aria-hidden="true">
+        <a class="photo-link" href="${href}" target="_blank" rel="noopener">
+          <img src="${block.image}" alt="${escapeHtml(labels.playCaption)}" loading="lazy">
+          <span class="play" aria-hidden="true">▶</span>
+        </a>
+        <label class="zoom" for="${id}" title="${zoom}" aria-label="${zoom}">⛶</label>
+        <label class="lightbox" for="${id}" aria-hidden="true"></label>
+      </div>
       <p class="script">${escapeHtml(block.script)}</p>
     </article>`;
 }
@@ -57,6 +70,18 @@ export const BOOK_STYLE = `
   .photo img { width: 100%; border-radius: 10px; display: block; }
   .photo .play { position: absolute; left: 10px; bottom: 10px; color: #fff;
     background: rgba(0,0,0,.6); font-size: .8rem; padding: 2px 9px; border-radius: 99px; }
+  .zoom-toggle { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+  .photo .zoom { position: absolute; right: 10px; bottom: 10px; z-index: 2; cursor: zoom-in;
+    color: #fff; background: rgba(0,0,0,.6); font-size: .85rem; line-height: 1;
+    padding: 4px 8px; border-radius: 99px; user-select: none; }
+  .lightbox { display: none; }
+  .zoom-toggle:checked ~ .lightbox { display: block; position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,.88); cursor: zoom-out; }
+  .zoom-toggle:checked ~ .photo-link img { position: fixed; inset: 0; margin: auto; z-index: 101;
+    width: auto; height: auto; max-width: 96vw; max-height: 96vh; border-radius: 8px;
+    box-shadow: 0 10px 50px rgba(0,0,0,.55); pointer-events: none; }
+  .zoom-toggle:checked ~ .photo-link .play { display: none; }
+  body:has(.zoom-toggle:checked) { overflow: hidden; }
   .script { margin: 10px 2px 0; font-size: 1.02rem; white-space: pre-wrap; }
   @media (min-width: 700px) {
     .wrap { max-width: 960px; }
@@ -70,7 +95,7 @@ export const BOOK_STYLE = `
   }`;
 
 export function renderBookBodyHtml(book: BookData, labels: BookLabels): string {
-  const scenes = book.scenes.map(s => sceneBlockHtml(s, book.videoId, labels)).join('\n');
+  const scenes = book.scenes.map((s, i) => sceneBlockHtml(s, book.videoId, labels, i)).join('\n');
   const coverImg = book.cover.image
     ? `<img src="${book.cover.image}" alt="${escapeHtml(book.cover.title)}">`
     : '';
