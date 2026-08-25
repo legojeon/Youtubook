@@ -2,7 +2,7 @@ import { cuesToSentences } from '../core/sentences';
 import { repKey } from '../core/types';
 import { buildBookData, selectedScenes } from '../results/book-data';
 import { resizeForBook } from '../results/image-resize';
-import { BOOK_STYLE, type BookLabels } from '../results/html-book';
+import { BOOK_STYLE, ICON_BLOG, ICON_SLIDE, initViewToggle, type BookLabels } from '../results/html-book';
 import { getSession } from '../storage/db';
 import { applyI18n, t } from '../ui/i18n';
 import { renderViewer } from './viewer-view';
@@ -12,6 +12,9 @@ function bookLabels(): BookLabels {
     playCaption: t('book_playCaption'),
     openOriginal: t('book_openOriginal'),
     zoomCaption: t('book_zoomCaption'),
+    viewToggle: t('book_viewToggle'),
+    prevScene: t('book_prevScene'),
+    nextScene: t('book_nextScene'),
   };
 }
 
@@ -44,4 +47,5 @@ void (async () => {
   }
   const book = await buildBookData(scenes, session.meta, img => resizeForBook(img, false));
   renderViewer(container, book, bookLabels());
+  initViewToggle(ICON_SLIDE, ICON_BLOG);
 })();

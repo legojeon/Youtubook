@@ -25,6 +25,9 @@ export interface BookLabels {
   playCaption: string;
   openOriginal: string;
   zoomCaption: string;
+  viewToggle: string;
+  prevScene: string;
+  nextScene: string;
 }
 
 function deepLinkUrl(videoId: string, sec: number): string {
@@ -89,9 +92,40 @@ export const BOOK_STYLE = `
     .photo { flex: 0 0 55%; }
     .script { flex: 1; margin-top: 0; }
   }
+  .view-toggle { position: fixed; right: 14px; bottom: 14px; z-index: 70;
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; padding: 0; border: none; background: none; cursor: pointer;
+    color: #23262e; -webkit-tap-highlight-color: transparent;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.35)); }
+  .slide-nav { display: none; }
+  body.slide-mode { overflow: hidden; }
+  body.slide-mode .view-toggle { bottom: 9px; right: 14px; }
+  body.slide-mode .cover { display: none; }
+  body.slide-mode .wrap { max-width: none; padding: 0; }
+  body.slide-mode .scene { display: none; margin: 0; }
+  body.slide-mode .scene.active { display: flex; flex-direction: column; align-items: center;
+    position: fixed; inset: 0; z-index: 50; padding: 16px 16px 72px; background: #faf9f7; }
+  body.slide-mode .photo { flex: 0 0 auto; width: 100%; max-width: 960px; text-align: center; }
+  body.slide-mode .photo img { width: 100%; height: auto; max-height: 76vh; object-fit: contain; }
+  body.slide-mode .photo .zoom { background: none; padding: 0; right: 12px; bottom: 12px;
+    font-size: 1.4rem; text-shadow: 0 1px 4px rgba(0,0,0,.65); }
+  body.slide-mode .script { flex: 1 1 auto; overflow-y: auto; width: 100%; max-width: 760px;
+    margin: 14px 0 0; font-size: 1.1rem; text-align: center; }
+  body.slide-mode .slide-nav { display: flex; position: fixed; left: 0; right: 0; bottom: 0;
+    z-index: 60; align-items: center; justify-content: center; gap: 22px;
+    padding: 10px 64px; background: rgba(250,249,247,.94); }
+  .slide-nav button { border: none; background: none; cursor: pointer; color: #23262e;
+    font-size: 1.7rem; line-height: 1; padding: 4px 14px; }
+  .slide-nav button:disabled { opacity: .3; cursor: default; }
+  .slide-nav .counter { font-size: .95rem; min-width: 64px; text-align: center; }
   @media (prefers-color-scheme: dark) {
     body { background: #16171b; color: #e9e9ec; }
     .cover a { color: #7fb0f0; }
+    .view-toggle { color: #e9e9ec; }
+    body.slide-mode .scene.active { background: #16171b; }
+    body.slide-mode .view-toggle { color: #e9e9ec; }
+    body.slide-mode .slide-nav { background: rgba(22,23,27,.94); }
+    .slide-nav button { color: #e9e9ec; }
   }`;
 
 export function renderBookBodyHtml(book: BookData, labels: BookLabels): string {
@@ -111,7 +145,92 @@ ${scenes}
 </div>`;
 }
 
+// Icon shown on the toggle = the mode you switch INTO.
+// Slide: a screen (image) with a caption line below. Blog: stacked article lines.
+export const ICON_SLIDE =
+  '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"/><line x1="7" y1="20" x2="17" y2="20"/></svg>';
+export const ICON_BLOG =
+  '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>';
+
+/**
+ * Wires the blog/slide view toggle on the current document. Self-contained (closes
+ * over no module scope) so it can be both called directly in the in-extension viewer
+ * AND serialized via toString() into the exported HTML's inline script. The exported
+ * file cannot import modules and the viewer (an MV3 page) forbids eval, so a shared
+ * real function bridged by toString() is the single source of truth for both.
+ */
+export function initViewToggle(slideIcon: string, blogIcon: string): void {
+  const body = document.body;
+  const scenes = Array.prototype.slice.call(document.querySelectorAll('.scene')) as HTMLElement[];
+  if (!scenes.length) return;
+  const toggle = document.querySelector('.view-toggle') as HTMLElement;
+  const nav = document.querySelector('.slide-nav') as HTMLElement;
+  const counter = nav.querySelector('.counter') as HTMLElement;
+  const prev = nav.querySelector('.prev') as HTMLButtonElement;
+  const next = nav.querySelector('.next') as HTMLButtonElement;
+  let i = 0;
+  const show = (n: number): void => {
+    i = Math.max(0, Math.min(scenes.length - 1, n));
+    scenes.forEach((s, k) => s.classList.toggle('active', k === i));
+    counter.textContent = i + 1 + ' / ' + scenes.length;
+    prev.disabled = i === 0;
+    next.disabled = i === scenes.length - 1;
+  };
+  const setMode = (on: boolean): void => {
+    body.classList.toggle('slide-mode', on);
+    toggle.innerHTML = on ? blogIcon : slideIcon;
+    nav.setAttribute('aria-hidden', on ? 'false' : 'true');
+    if (on) show(i);
+  };
+  toggle.addEventListener('click', () => setMode(!body.classList.contains('slide-mode')));
+  prev.addEventListener('click', () => show(i - 1));
+  next.addEventListener('click', () => show(i + 1));
+  document.addEventListener('keydown', e => {
+    if (!body.classList.contains('slide-mode')) return;
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      show(i + 1);
+    } else if (e.key === 'ArrowLeft') show(i - 1);
+    else if (e.key === 'Escape') setMode(false);
+  });
+  let x0: number | null = null;
+  body.addEventListener(
+    'touchstart',
+    e => {
+      if (body.classList.contains('slide-mode')) x0 = e.touches[0].clientX;
+    },
+    { passive: true },
+  );
+  body.addEventListener(
+    'touchend',
+    e => {
+      if (x0 === null) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      x0 = null;
+      if (Math.abs(dx) > 50) show(i + (dx < 0 ? 1 : -1));
+    },
+    { passive: true },
+  );
+}
+
+const VIEW_TOGGLE_SCRIPT = `<script>(${initViewToggle.toString()})(${JSON.stringify(ICON_SLIDE)},${JSON.stringify(ICON_BLOG)});</script>`;
+
+export function viewToggleHtml(book: BookData, labels: BookLabels): string {
+  if (!book.scenes.length) return '';
+  const vt = escapeHtml(labels.viewToggle);
+  const prev = escapeHtml(labels.prevScene);
+  const next = escapeHtml(labels.nextScene);
+  return `<button class="view-toggle" type="button" aria-label="${vt}" title="${vt}">${ICON_SLIDE}</button>
+<nav class="slide-nav" aria-hidden="true">
+  <button class="prev" type="button" aria-label="${prev}">‹</button>
+  <span class="counter">1 / ${book.scenes.length}</span>
+  <button class="next" type="button" aria-label="${next}">›</button>
+</nav>`;
+}
+
 export function buildHtmlBook(book: BookData, labels: BookLabels, lang: string): Blob {
+  const controls = viewToggleHtml(book, labels);
+  const script = book.scenes.length ? VIEW_TOGGLE_SCRIPT : '';
   const html = `<!doctype html>
 <html lang="${escapeHtml(lang)}">
 <head>
@@ -123,6 +242,8 @@ export function buildHtmlBook(book: BookData, labels: BookLabels, lang: string):
 </head>
 <body>
 ${renderBookBodyHtml(book, labels)}
+${controls}
+${script}
 </body>
 </html>`;
   return new Blob([html], { type: 'text/html;charset=utf-8' });
