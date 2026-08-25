@@ -7,7 +7,7 @@ export default defineManifest({
   // Lite (web store) uses a localized "brand: descriptor" name for discovery (en/ko); Full keeps
   // the plain internal name. __MSG__ resolves per the viewer's locale at load time.
   name: isWebstore ? '__MSG_appNameLite__' : 'Youtubook Full',
-  version: '0.1.4',
+  version: '0.1.5',
   default_locale: 'en',
   // Lite (web store) has no file export, so it uses a reading-focused description with no
   // download/convert framing (accuracy + store policy); Full keeps the export-oriented one.
